@@ -1,0 +1,4 @@
+mcp>=2.3.0
+uiautomation>=2.0.29
+pywin32>=312
+anyio>=4.9.0

@@ -1,0 +1,17 @@
+from ai_mouse.core.desktop import ensure_desktop, attach_thread_desktop, init_com
+from ai_mouse.core.mouse import (
+    get_mouse_position,
+    move_mouse,
+    mouse_click,
+    move_and_click,
+)
+
+__all__ = [
+    "ensure_desktop",
+    "attach_thread_desktop",
+    "init_com",
+    "get_mouse_position",
+    "move_mouse",
+    "mouse_click",
+    "move_and_click",
+]
