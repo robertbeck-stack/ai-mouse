@@ -5,6 +5,9 @@ Self-check test suite for modular ai_mouse.
 import sys
 from pathlib import Path
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # Add src to path
 src_path = Path(__file__).parent.parent / "src"
 if str(src_path) not in sys.path:
@@ -101,6 +104,33 @@ def test_responsive_anchors_and_fill():
     print(f" -> Responsive right-anchor dynamically recalculated: {cached_close['center_x']}")
 
 
+def test_sync_and_sanitizer():
+    print("Testing cloud sync sanitizer skeleton...")
+    from ai_mouse.sync import sanitize_app_profile, CloudSyncClient
+
+    sample_app_data = {
+        "elements": {
+            "save": {"name": "Save File", "control_type": "ButtonControl", "shortcut": "Ctrl+S"},
+            "private_path": {"name": "C:\\Users\\Robert\\Secrets.txt", "control_type": "EditControl"},
+            "email_button": {"name": "Send to john@example.com", "control_type": "ButtonControl"},
+            "print": {"name": "Print", "control_type": "ButtonControl", "shortcut": "Ctrl+P"},
+        }
+    }
+    sanitized = sanitize_app_profile("PersonalDoc - Notepad", sample_app_data)
+    assert sanitized["app"] == "notepad"
+    assert "save" in sanitized["elements"]
+    assert "print" in sanitized["elements"]
+    assert "private_path" not in sanitized["elements"]
+    assert "email_button" not in sanitized["elements"]
+
+    client = CloudSyncClient()
+    res = client.upload_to_community("notepad", sample_app_data, public_consent=False)
+    assert "error" in res  # Without consent, blocked
+    res_ok = client.upload_to_community("notepad", sample_app_data, public_consent=True)
+    assert res_ok["status"] == "skeleton_queued"
+    print(" -> Sanitizer & Sync skeleton verified")
+
+
 def run_all():
     test_core_mouse()
     test_window_enumeration()
@@ -111,6 +141,7 @@ def run_all():
     test_mouse_features()
     test_dpi_awareness()
     test_responsive_anchors_and_fill()
+    test_sync_and_sanitizer()
     print("\nALL MODULAR TESTS PASSED!")
 
 
