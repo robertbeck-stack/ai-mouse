@@ -544,9 +544,10 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         <div class="wiki-header-actions">
             <button class="btn-wiki" onclick="fetchStats()">🔄 Refresh</button>
+            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive()" title="Exhaustive deep dive: learn every menu, button, and shortcut">🔬 Total Deep Dive</button>
+            <button id="btnAutoRecord" class="btn-wiki" onclick="triggerAutoMoveRecord()" title="Automatically move mouse over window controls and record into Wikipedia">🎯 Auto-Move & Record</button>
             <button id="btnRecordCursor" class="btn-wiki" onclick="triggerRecordCursor()" title="Move mouse over any button to record into Wikipedia">🎯 Record Hover</button>
-            <button id="btnAutoRecord" class="btn-wiki btn-wiki-primary" onclick="triggerAutoMoveRecord()" title="Automatically move mouse over window controls and record into Wikipedia">🎯 Auto-Move & Record</button>
-            <button id="btnPrelearn" class="btn-wiki" onclick="triggerPrelearn()">⚡ Deep Scan</button>
+            <button id="btnPrelearn" class="btn-wiki" onclick="triggerPrelearn()">⚡ Full System Scan</button>
         </div>
     </header>
 
@@ -781,6 +782,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </div>
                     <div class="tabs-right">
                         <span class="article-tab active">Read</span>
+                        <span class="article-tab" onclick="triggerDeepDive('${appKey}')" title="Exhaustive deep dive: learn every menu, button, and shortcut in this app">🔬 Total Deep Dive</span>
                         <span class="article-tab" onclick="triggerAutoMoveRecord('${appKey}')" title="Automatically move mouse over this app and record">🎯 Auto-Scan & Move</span>
                         <span class="article-tab" onclick="fetchStats()">View history</span>
                     </div>
@@ -797,6 +799,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <tr><th>Positioning</th><td>Relative + Anchors</td></tr>
                         <tr><th>Cache Storage</th><td><code>ui_roadmap.json</code></td></tr>
                     </table>
+                    <div style="padding: 8px 4px 4px 4px;">
+                        <button class="btn-wiki btn-wiki-primary" style="width: 100%; justify-content: center; font-size: 12px;" onclick="triggerDeepDive('${appKey}')">🔬 Total Deep Dive</button>
+                    </div>
                 </div>
 
                 <div class="article-header">
@@ -1040,6 +1045,44 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
         }
 
+        async function triggerDeepDive(appKey) {
+            const btn = document.getElementById('btnDeepDive');
+            let target = appKey || (currentView === 'app' ? currentApp : '');
+            if (!target) {
+                target = prompt('Enter application name or window title to Deep Dive (e.g. Notepad, Brave, Explorer):');
+                if (!target) return;
+            }
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = '🔬 Deep Diving...';
+            }
+            showToast(`🔬 Exhaustive Deep Dive initiated for '${target}': Learning every menu, button, and shortcut...`, 5000);
+
+            try {
+                const res = await fetch('/api/deepdive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ window: target })
+                });
+                const data = await res.json();
+                if (data.status === 'deep_dive_complete') {
+                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts for ${data.app}!`, 5000);
+                    await fetchStats();
+                    if (data.app) navigateTo('app', data.app);
+                } else {
+                    showToast('Deep dive error: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                showToast('Deep dive error: ' + e);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = '🔬 Total Deep Dive';
+                }
+            }
+        }
+
         async function testSnapWindow(side) {
             const win = document.getElementById('snapWindowInput')?.value || '';
             try {
@@ -1259,6 +1302,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             win = req_data.get("window", "")
             res = am.auto_record_window(window_search=win, move_cursor=True)
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/deepdive":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            win = req_data.get("window", "")
+            res = am.deep_dive_app(window_search=win)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/snap_window":

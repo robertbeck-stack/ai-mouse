@@ -33,6 +33,7 @@ def test_shim_parity():
     assert am.wait_for_element is dd.wait_for_element
     assert am.wait_and_click is dd.wait_and_click
     assert am.auto_record_window is dd.auto_record_window
+    assert am.deep_dive_app is dd.deep_dive_app
     print(" -> Backward-compatibility shim matches deskdriver 100%")
 
 
@@ -224,6 +225,17 @@ def test_auto_record():
         print(f" -> Auto-recorded {res.get('count', 0)} controls for {res['app']}")
 
 
+def test_deep_dive():
+    print("Testing deep_dive_app engine...")
+    wins = dd.list_windows()
+    if wins:
+        res = dd.deep_dive_app(window_search=wins[0]["title"], max_depth=4, max_elements=5)
+        assert res["status"] == "deep_dive_complete"
+        assert "total_elements" in res
+        assert "categories" in res
+        print(f" -> Deep dive indexed {res['total_elements']} elements for {res['app']}")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -241,6 +253,7 @@ def run_all():
     test_record_on_hover()
     test_multimonitor_and_waiting()
     test_auto_record()
+    test_deep_dive()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

@@ -256,6 +256,16 @@ def auto_record_window(window_search: str = "", move_cursor: bool = True, max_el
     return am.auto_record_window(window_search=window_search, move_cursor=move_cursor, max_elements=max_elements)
 
 
+@server.tool()
+def deep_dive_app(window_search: str = "", max_depth: int = 15, max_elements: int = 500) -> dict:
+    """
+    Exhaustive Deep Dive: Inspects every menu command (legacy Win32 and modern),
+    toolbar, input field, and accelerator in an application, indexing all into ui_roadmap.json.
+    """
+    return am.deep_dive_app(window_search=window_search, max_depth=max_depth, max_elements=max_elements)
+
+
+
 
 @server.tool()
 def wait_for_window(window_search: str, timeout: float = 3.0) -> dict:

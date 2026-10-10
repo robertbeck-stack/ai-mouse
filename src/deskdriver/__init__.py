@@ -41,6 +41,7 @@ from deskdriver.navigation.roadmap import (
     wait_and_click,
     roadmap,
 )
+from deskdriver.navigation.deepdive import deep_dive_app
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.prelearn import run_system_prelearn
 
@@ -85,6 +86,7 @@ __all__ = [
     "wait_for_element",
     "wait_and_click",
     "roadmap",
+    "deep_dive_app",
     "execute_fastpath",
     "run_system_prelearn",
 ]
