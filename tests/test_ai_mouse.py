@@ -58,8 +58,8 @@ def test_keyboard_support():
 def test_hotkeys_extraction():
     print("Testing hotkey extraction...")
     from ai_mouse.navigation.hotkeys import extract_shortcut_from_name, get_app_hotkeys
-    name, sc = extract_shortcut_from_name("Feitletrað (Ctrl+B)")
-    assert name == "Feitletrað" and sc == "Ctrl+B"
+    name, sc = extract_shortcut_from_name("Bold (Ctrl+B)")
+    assert name == "Bold" and sc == "Ctrl+B"
     name, sc = extract_shortcut_from_name("Save File (Ctrl+Shift+S)")
     assert name == "Save File" and sc == "Ctrl+Shift+S"
     notepad_keys = get_app_hotkeys("Notepad")

@@ -23,11 +23,11 @@ from ai_mouse.core.keyboard import COMMON_HOTKEYS
 PORT = 8765
 
 HTML_CONTENT = """<!DOCTYPE html>
-<html lang="is">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Mouse - Live Stats, Roadmap & Hotkeys Wiki</title>
+    <title>AI Mouse - Live Roadmap, Hotkeys & Desktop Wiki</title>
     <style>
         :root {
             --bg: #0b1120;
@@ -142,27 +142,27 @@ HTML_CONTENT = """<!DOCTYPE html>
         <header>
             <div class="header-title">
                 <h1>⚡ AI Mouse & UI Wiki</h1>
-                <p>Rauntíma Vegvísir, Flýtilyklar (Hotkeys) og Skjáborðsvöktun</p>
+                <p>Real-time UI Roadmap, Keyboard Accelerators & System Fastpaths</p>
             </div>
             <div class="header-actions">
                 <button class="btn-action" style="padding: 10px 16px; font-weight: 700; font-size: 13.5px;" onclick="fetchStats()">
-                    <span>🔄 Uppfæra stöðu</span>
+                    <span>🔄 Refresh Status</span>
                 </button>
                 <button id="btnPrelearn" class="btn-prelearn" onclick="triggerPrelearn()">
-                    <span>🚀 Byrja System Pre-Learn</span>
+                    <span>🚀 Run System Pre-Learn</span>
                 </button>
                 <div class="live-indicator">
                     <span class="pulse"></span>
-                    <span>VIRKT</span>
+                    <span>ACTIVE</span>
                 </div>
             </div>
         </header>
 
         <!-- NAVIGATION TABS -->
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('overview')">📊 Yfirlit & Staða</button>
-            <button class="tab-btn" onclick="switchTab('wiki')">📖 Roadmap Wiki (Lærð forrit)</button>
-            <button class="tab-btn" onclick="switchTab('hotkeys')">⌨️ Hotkeys Wiki (Flýtilyklar)</button>
+            <button class="tab-btn active" onclick="switchTab('overview')">📊 Overview & Stats</button>
+            <button class="tab-btn" onclick="switchTab('wiki')">📖 Roadmap Wiki (Learned Apps)</button>
+            <button class="tab-btn" onclick="switchTab('hotkeys')">⌨️ Hotkeys Wiki (Shortcuts)</button>
             <button class="tab-btn" onclick="switchTab('fastpaths')">⚡ OS Fastpaths Wiki</button>
         </div>
 
@@ -170,59 +170,59 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div id="tab-overview" class="tab-content active">
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="label">Kortlögð forrit</div>
+                    <div class="label">Indexed Apps</div>
                     <div class="val" id="totalApps">-</div>
-                    <div class="sub">Í ui_roadmap.json</div>
+                    <div class="sub">In ui_roadmap.json</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Lærðir takkar / stjórntæki</div>
+                    <div class="label">Learned Controls</div>
                     <div class="val" id="totalElements">-</div>
-                    <div class="sub">O(1) hraðsmellir (< 1 ms)</div>
+                    <div class="sub">O(1) Fast Click (< 1 ms)</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Flýtilyklar (Hotkeys)</div>
+                    <div class="label">Keyboard Shortcuts</div>
                     <div class="val" id="totalShortcutsCount">-</div>
-                    <div class="sub">0.5 ms beinar aðgerðir</div>
+                    <div class="sub">0.5 ms Direct Actions</div>
                 </div>
                 <div class="metric-card">
                     <div class="label">OS Fastpaths</div>
                     <div class="val" id="totalFastpathsCount">-</div>
-                    <div class="sub">0 ms Windows URI slóðir</div>
+                    <div class="sub">0 ms Windows URI Schemes</div>
                 </div>
             </div>
 
-            <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Kortlögð forrit í fljótu bragði:</div>
+            <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Mapped applications at a glance:</div>
             <div class="apps-grid" id="overviewAppsGrid"></div>
         </div>
 
         <!-- TAB 2: ROADMAP WIKI -->
         <div id="tab-wiki" class="tab-content">
             <div class="search-bar-row">
-                <div style="font-size: 16px; font-weight: 700; color: var(--text);">Öll lærð stjórntæki og takkar í kerfinu:</div>
-                <input type="text" id="wikiSearchInput" class="search-box" placeholder="Sía eftir takka, forriti eða flýtilykli..." oninput="filterWiki()">
+                <div style="font-size: 16px; font-weight: 700; color: var(--text);">All learned UI controls and actions in the system:</div>
+                <input type="text" id="wikiSearchInput" class="search-box" placeholder="Filter by control, app, or hotkey..." oninput="filterWiki()">
             </div>
             <div class="apps-grid" id="wikiAppsGrid"></div>
         </div>
 
         <!-- TAB 3: HOTKEYS WIKI -->
         <div id="tab-hotkeys" class="tab-content">
-            <div style="font-size: 16px; font-weight: 700; margin-bottom: 8px; color: var(--text);">⌨️ Flýtilyklar (Universal & App Hotkeys - 0.5 ms):</div>
-            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">Þessir flýtilyklar framkvæma aðgerðir samstundis án þess að hreyfa músina. Þú getur prófað hvaða flýtilykil sem er með því að smella á „Prófa / Ýta“.</p>
+            <div style="font-size: 16px; font-weight: 700; margin-bottom: 8px; color: var(--text);">⌨️ Keyboard Shortcuts (Universal & App Accelerators - 0.5 ms):</div>
+            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">These shortcuts execute actions instantly without moving the mouse. Test any hotkey directly by clicking "Test / Trigger".</p>
 
             <!-- LIVE TEST KEYBOARD PANEL -->
             <div class="test-box">
-                <strong style="color: var(--primary);">Prófa textainnslátt í virkan glugga:</strong>
-                <input type="text" id="typeTextInput" class="test-input" placeholder="Sláðu inn texta sem á að senda inn...">
-                <button class="btn-action" style="padding: 10px 16px;" onclick="testTypeText()">Senda texta</button>
+                <strong style="color: var(--primary);">Test text typing into focused window:</strong>
+                <input type="text" id="typeTextInput" class="test-input" placeholder="Type text to send to focused window...">
+                <button class="btn-action" style="padding: 10px 16px;" onclick="testTypeText()">Send Text</button>
             </div>
 
             <table class="wiki-table">
                 <thead>
                     <tr>
-                        <th>Aðgerð / Hlutverk</th>
-                        <th>Flýtilykill</th>
-                        <th>Hraði</th>
-                        <th>Aðgerð</th>
+                        <th>Action / Function</th>
+                        <th>Shortcut</th>
+                        <th>Latency</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="hotkeysBody"></tbody>
@@ -232,15 +232,15 @@ HTML_CONTENT = """<!DOCTYPE html>
         <!-- TAB 4: FASTPATHS WIKI -->
         <div id="tab-fastpaths" class="tab-content">
             <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Windows Direct OS Fastpaths (0 ms Navigation):</div>
-            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">Þessar flýtivísanir gera gervigreindinni kleift að hoppa beint inn í Windows stillingar eða forrit á 0 ms án nokkurra músarsmella.</p>
+            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">These system URI shortcuts allow AI to navigate Windows settings and native tools instantly without mouse clicks.</p>
             
             <table class="wiki-table">
                 <thead>
                     <tr>
-                        <th>Skipun / Lykill</th>
+                        <th>Command / Keyword</th>
                         <th>Windows URI</th>
-                        <th>Lýsing</th>
-                        <th>Aðgerð</th>
+                        <th>Description</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="fastpathsBody"></tbody>
@@ -328,7 +328,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 header.className = 'app-header';
                 header.innerHTML = `
                     <div class="app-title">${appName}</div>
-                    <div class="app-count">${filtered.length} takkar</div>
+                    <div class="app-count">${filtered.length} controls</div>
                 `;
                 card.appendChild(header);
 
@@ -337,7 +337,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
                 const itemsToShow = filtered.slice(0, maxItems);
                 if (itemsToShow.length === 0) {
-                    list.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; padding: 12px;">Engir takkar fundust.</div>';
+                    list.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; padding: 12px;">No controls found.</div>';
                 } else {
                     for (const el of itemsToShow) {
                         const item = document.createElement('div');
@@ -361,7 +361,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                         more.style.padding = '8px';
                         more.style.fontSize = '12px';
                         more.style.color = 'var(--primary)';
-                        more.innerText = `+ ${filtered.length - maxItems} aðrir takkar (sjá í Roadmap Wiki)`;
+                        more.innerText = `+ ${filtered.length - maxItems} more controls (view in Roadmap Wiki)`;
                         list.appendChild(more);
                     }
                 }
@@ -389,7 +389,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <td><kbd class="kbd-badge">${key.toUpperCase()}</kbd></td>
                     <td><span style="color: var(--success); font-weight: 600;">0.5 ms</span></td>
                     <td>
-                        <button class="btn-action" onclick="triggerHotkey('${key}')">Prófa / Ýta</button>
+                        <button class="btn-action" onclick="triggerHotkey('${key}')">Test / Trigger</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -406,9 +406,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                 tr.innerHTML = `
                     <td><strong>${key}</strong></td>
                     <td><code style="color: var(--primary); font-family: monospace;">${uri}</code></td>
-                    <td style="color: var(--text-muted);">Opnar beint ${key} stillingar / forrit</td>
+                    <td style="color: var(--text-muted);">Directly opens ${key} settings / tool</td>
                     <td>
-                        <button class="btn-action" onclick="launchFastpath('${key}')">Prófa / Opna</button>
+                        <button class="btn-action" onclick="launchFastpath('${key}')">Test / Open</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -422,9 +422,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ hotkey: hotkey })
                 });
-                showToast(`Sendi flýtilykil: ${hotkey.toUpperCase()}`);
+                showToast(`Triggered hotkey: ${hotkey.toUpperCase()}`);
             } catch (e) {
-                alert("Villa: " + e);
+                alert("Error: " + e);
             }
         }
 
@@ -437,10 +437,10 @@ HTML_CONTENT = """<!DOCTYPE html>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: val, enter: true })
                 });
-                showToast(`Skrifaði texta inn í virkan glugga: ${val}`);
+                showToast(`Typed text into focused window: ${val}`);
                 document.getElementById('typeTextInput').value = '';
             } catch (e) {
-                alert("Villa: " + e);
+                alert("Error: " + e);
             }
         }
 
@@ -451,28 +451,28 @@ HTML_CONTENT = """<!DOCTYPE html>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ target: target })
                 });
-                showToast(`Opnaði flýtivísun: ${target}`);
+                showToast(`Launched fastpath: ${target}`);
             } catch (e) {
-                alert("Villa við að opna flýtivísun: " + e);
+                alert("Error launching fastpath: " + e);
             }
         }
 
         async function triggerPrelearn() {
             const btn = document.getElementById('btnPrelearn');
             btn.disabled = true;
-            btn.innerHTML = '<span>⏳ Skannar forrit og stiku...</span>';
-            showToast('Hóf kerfisskönnun (System Pre-Learn)...');
+            btn.innerHTML = '<span>⏳ Scanning open windows & taskbar...</span>';
+            showToast('Started System Pre-Learn scan...');
 
             try {
                 const res = await fetch('/api/prelearn', { method: 'POST' });
                 const data = await res.json();
-                showToast(`Pre-Learn lokið! Fann ${data.total_new_elements} takka í ${data.scanned_apps.length} forritum.`);
+                showToast(`Pre-Learn complete! Discovered ${data.total_new_elements} controls across ${data.scanned_apps.length} apps.`);
                 await fetchStats();
             } catch (e) {
-                alert("Pre-learn villa: " + e);
+                alert("Pre-learn error: " + e);
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '<span>🚀 Byrja System Pre-Learn</span>';
+                btn.innerHTML = '<span>🚀 Run System Pre-Learn</span>';
             }
         }
 
