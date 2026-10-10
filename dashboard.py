@@ -504,6 +504,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         <div class="wiki-header-actions">
             <button class="btn-wiki" onclick="fetchStats()">🔄 Refresh</button>
+            <button id="btnRecordCursor" class="btn-wiki" onclick="triggerRecordCursor()" title="Move mouse over any button to record into Wikipedia">🎯 Record Hover</button>
             <button id="btnPrelearn" class="btn-wiki btn-wiki-primary" onclick="triggerPrelearn()">🚀 Run Pre-Learn</button>
         </div>
     </header>
@@ -518,7 +519,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <li><a class="sidebar-item active" id="menu-main" onclick="navigateTo('main')"><span>🏠 Main Page</span></a></li>
                     <li><a class="sidebar-item" id="menu-hotkeys" onclick="navigateTo('hotkeys')"><span>⌨️ Universal Hotkeys</span> <span class="sidebar-badge" id="sideBadgeHotkeys">31</span></a></li>
                     <li><a class="sidebar-item" id="menu-fastpaths" onclick="navigateTo('fastpaths')"><span>⚡ OS Fastpaths</span> <span class="sidebar-badge" id="sideBadgeFastpaths">33</span></a></li>
-                    <li><a class="sidebar-item" id="menu-tester" onclick="navigateTo('tester')"><span>🧪 Input Tester</span></a></li>
+                    <li><a class="sidebar-item" id="menu-tester" onclick="navigateTo('tester')"><span>🧪 Controls & Tester</span></a></li>
                 </ul>
             </div>
 
@@ -532,7 +533,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div class="sidebar-section">
                 <div class="sidebar-title">Community & Tools</div>
                 <ul class="sidebar-menu">
-                    <li><a class="sidebar-item" href="https://github.com/robertbeck-stack/ai-mouse" target="_blank"><span>📦 GitHub Repo</span></a></li>
+                    <li><a class="sidebar-item" href="https://github.com/robertbeck-stack/deskdriver" target="_blank"><span>📦 GitHub Repo</span></a></li>
                     <li><a class="sidebar-item" onclick="triggerPrelearn()"><span>⚡ Deep Scan (Pre-Learn)</span></a></li>
                 </ul>
             </div>
@@ -866,25 +867,128 @@ HTML_CONTENT = """<!DOCTYPE html>
             `;
         }
 
-        /* 5. TESTER PAGE */
+        /* 5. TESTER & CONTROLS PAGE */
         function renderTesterPage(container) {
             container.innerHTML = `
                 <div class="article-header">
-                    <h1 class="article-title">Input & Typing Tester</h1>
-                    <div class="article-tagline">Interactive laboratory for testing atomic SendInput text dispatch</div>
+                    <h1 class="article-title">Desktop Automation Controls & Laboratory</h1>
+                    <div class="article-tagline">Interactive tools for testing atomic SendInput, window snapping, and clipboard fastpaths</div>
                 </div>
 
-                <div class="welcome-banner" style="margin-top: 20px;">
-                    <div style="flex: 1;">
-                        <h3 style="color: #fff; margin-bottom: 8px;">Direct Text Input Tester</h3>
+                <div class="welcome-banner" style="margin-top: 20px; flex-direction: column; gap: 20px;">
+                    <div>
+                        <h3 style="color: #fff; margin-bottom: 8px;">🪟 Window Layout & Snapping</h3>
+                        <p style="color: var(--text-muted); margin-bottom: 14px;">Reposition or snap any open window to screen halves or center using native Win32 <code>SetWindowPos</code>.</p>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <input type="text" id="snapWindowInput" class="wiki-search-input" style="flex: 1; min-width: 200px; border-radius: 6px; padding: 10px 14px; font-size: 14px;" placeholder="Window title (e.g. Brave, Notepad, Explorer)...">
+                            <button class="btn-wiki" onclick="testSnapWindow('left')">⬅️ Left Half</button>
+                            <button class="btn-wiki" onclick="testSnapWindow('right')">➡️ Right Half</button>
+                            <button class="btn-wiki" onclick="testSnapWindow('center')">🔲 Center</button>
+                            <button class="btn-wiki" onclick="testSnapWindow('full')">🗖 Maximize</button>
+                            <button class="btn-wiki" onclick="testSnapWindow('minimize')">🗕 Minimize</button>
+                        </div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%;">
+
+                    <div>
+                        <h3 style="color: #fff; margin-bottom: 8px;">📋 Instant Clipboard Fastpath (0.5 ms Paste)</h3>
+                        <p style="color: var(--text-muted); margin-bottom: 14px;">Loads text onto Windows clipboard and triggers atomic <code>Ctrl+V</code> for instant entry of large multi-line text blocks.</p>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="pasteTextInput" class="wiki-search-input" style="border-radius: 6px; padding: 10px 14px; font-size: 14px;" placeholder="Text or multiline code to instantly paste...">
+                            <button class="btn-wiki btn-wiki-primary" onclick="testPasteClipboard()">⚡ Instant Paste</button>
+                        </div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%;">
+
+                    <div>
+                        <h3 style="color: #fff; margin-bottom: 8px;">⌨️ Direct SendInput Typing Tester</h3>
                         <p style="color: var(--text-muted); margin-bottom: 14px;">Types Unicode text directly into whatever window currently has focus using atomic Windows <code>SendInput</code>.</p>
                         <div style="display: flex; gap: 10px;">
                             <input type="text" id="typeTextInput" class="wiki-search-input" style="border-radius: 6px; padding: 10px 14px; font-size: 14px;" placeholder="Type text to send to focused window...">
-                            <button class="btn-wiki btn-wiki-primary" onclick="testTypeText()">Send Text</button>
+                            <button class="btn-wiki" onclick="testTypeText()">Send Text</button>
                         </div>
                     </div>
                 </div>
             `;
+        }
+
+        async function triggerRecordCursor() {
+            const btn = document.getElementById('btnRecordCursor');
+            if (btn) btn.disabled = true;
+            showToast("🎯 Move mouse over any UI button (capturing in 3 seconds)...", 3500);
+            let left = 3;
+            const timer = setInterval(() => {
+                left--;
+                if (btn) btn.innerText = `🎯 Capturing (${left}s)...`;
+                if (left <= 0) {
+                    clearInterval(timer);
+                    doCapture();
+                }
+            }, 1000);
+
+            async function doCapture() {
+                try {
+                    const res = await fetch('/api/record_cursor', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await res.json();
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = '🎯 Record Hover';
+                    }
+                    if (data.status === 'element_recorded') {
+                        showToast(`✅ Captured "${data.element}" for ${data.app}!`);
+                        fetchStats();
+                    } else {
+                        showToast(`Capture failed: ${data.error || 'Unknown'}`);
+                    }
+                } catch (e) {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = '🎯 Record Hover';
+                    }
+                    showToast('Capture error: ' + e);
+                }
+            }
+        }
+
+        async function testSnapWindow(side) {
+            const win = document.getElementById('snapWindowInput')?.value || '';
+            try {
+                const res = await fetch('/api/snap_window', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ window: win, side: side })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Snapped window '${win || 'active'}' to ${side}`);
+                } else {
+                    showToast(`Could not snap window '${win}'`);
+                }
+            } catch (e) {
+                alert("Error: " + e);
+            }
+        }
+
+        async function testPasteClipboard() {
+            const val = document.getElementById('pasteTextInput')?.value;
+            if (!val) return;
+            try {
+                await fetch('/api/paste', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: val })
+                });
+                showToast(`Pasted ${val.length} chars via clipboard (0.5 ms)`);
+                document.getElementById('pasteTextInput').value = '';
+            } catch (e) {
+                alert("Error: " + e);
+            }
         }
 
         function handleGlobalSearch() {
@@ -1053,6 +1157,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
             target = req_data.get("target", "")
             success = am.execute_fastpath(target)
             self.wfile.write(json.dumps({"success": success, "target": target}).encode("utf-8"))
+
+        elif clean_path == "/api/record_cursor":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            res = am.record_element_at_cursor(custom_name=req_data.get("name", ""))
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/snap_window":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            win = req_data.get("window", "")
+            side = req_data.get("side", "left")
+            ok = am.snap_window(win, side=side)
+            self.wfile.write(json.dumps({"success": ok, "window": win, "side": side}).encode("utf-8"))
+
+        elif clean_path == "/api/paste":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            text = req_data.get("text", "")
+            ok = am.clipboard_paste(text) if text else False
+            self.wfile.write(json.dumps({"success": ok, "length": len(text)}).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()

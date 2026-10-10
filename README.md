@@ -156,8 +156,13 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
 | `inspect_under_cursor` | *none* | Inspects the UI Automation control directly under the cursor. |
 | `inspect_at` | `x`, `y` | Inspects control metadata at specific coordinates without moving cursor. |
 | `list_windows` | *none* | Returns all visible desktop windows with handles and coordinates. |
-| `focus_window` | `title_or_hwnd` | Brings a window to the foreground and focuses input. |
 | `list_clickable_elements` | `window_search=""`, `max_elements=40` | Finds buttons and inputs in a window with their exact center coordinates. |
+| `snap_window` | `window_search`, `side="left"` | Snaps a window to screen halves or center (`left`, `right`, `top`, `bottom`, `center`, `full`). |
+| `maximize_window` / `minimize_window` | `window_search` | Maximizes or minimizes a target window via native Win32. |
+| `move_window` | `window_search`, `x`, `y`, `width`, `height` | Repositions and resizes a target window. |
+| `clipboard_paste` | `text` | Instantly pastes long multi-line text (0.5 ms) via Windows clipboard and `Ctrl+V`. |
+| `clipboard_get` | *none* | Reads the current text from the Windows clipboard. |
+| `record_current_element` | `custom_name=""` | Captures the element under cursor with responsive anchors directly into the roadmap cache. |
 
 ---
 
@@ -168,21 +173,24 @@ DeskDriver can also be used directly as a standalone Python library:
 ```python
 import deskdriver as dd
 
-# 1. Bring application to focus
+# 1. Bring application to focus and snap to screen half
 dd.focus_window("Notepad")
+dd.snap_window("Notepad", "left")
 
 # 2. Fast-click or trigger keyboard shortcuts (0.5 ms)
 dd.press_hotkey("ctrl+s")
 
-# 3. Fill an input field
-dd.fill_input("Address and search bar", "https://github.com", press_enter=True)
+# 3. Instant clipboard paste (0.5 ms for massive multiline text)
+dd.clipboard_paste("Hello World from DeskDriver!\nInstant multiline execution.")
 
-# 4. Human-like Bézier mouse motion
+# 4. Fill an input field
+dd.fill_input("Address and search bar", "https://github.com", submit=True)
+
+# 5. Human-like Bézier mouse motion
 dd.move_mouse(500, 300, smooth=True, duration=0.2)
 
-# 5. Inspect what's under the cursor
-info = dd.get_element_under_cursor()
-print(f"Hovering over: {info['name']} ({info['control_type']})")
+# 6. Record whatever element is currently under the mouse cursor
+record_info = dd.record_element_at_cursor(custom_name="SaveButton")
 ```
 
 ### Backward Compatibility

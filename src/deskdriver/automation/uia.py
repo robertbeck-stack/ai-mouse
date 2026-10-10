@@ -119,6 +119,10 @@ def get_element_at(x: int, y: int) -> dict:
         return {"error": str(e), "x": x, "y": y}
 
 
+# Alias for consistency with server tools
+inspect_at = get_element_at
+
+
 def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
     """
     Find clickable interactive elements in the active window or target window.

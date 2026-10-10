@@ -26,6 +26,9 @@ def test_shim_parity():
     assert am.press_hotkey is dd.press_hotkey
     assert am.list_windows is dd.list_windows
     assert am.roadmap is dd.roadmap
+    assert am.snap_window is dd.snap_window
+    assert am.clipboard_paste is dd.clipboard_paste
+    assert am.record_element_at_cursor is dd.record_element_at_cursor
     print(" -> Backward-compatibility shim matches deskdriver 100%")
 
 
@@ -144,6 +147,41 @@ def test_sync_and_sanitizer():
     print(" -> Sanitizer & Sync skeleton verified")
 
 
+def test_clipboard():
+    print("Testing native Win32 clipboard...")
+    test_str = "DeskDriver_Clipboard_Test_§$%&_123"
+    ok = dd.set_clipboard_text(test_str)
+    assert ok is True
+    read_back = dd.get_clipboard_text()
+    assert read_back == test_str
+    assert callable(dd.clipboard_paste)
+    print(" -> Clipboard read/write roundtrip verified")
+
+
+def test_window_snapping():
+    print("Testing window snapping & sizing API...")
+    assert callable(dd.snap_window)
+    assert callable(dd.maximize_window)
+    assert callable(dd.minimize_window)
+    assert callable(dd.move_window)
+    # Check find_window_hwnd on nonexistent window
+    from deskdriver.automation.windows import find_window_hwnd
+    assert find_window_hwnd("NonExistentWindow_12345XYZ") is None
+    print(" -> Window management callables verified")
+
+
+def test_record_on_hover():
+    print("Testing record on hover...")
+    res = dd.record_element_at_cursor(custom_name="SelfCheckTestButton")
+    assert res["status"] == "element_recorded"
+    assert "app" in res
+    assert res["element"] == "SelfCheckTestButton"
+    # Verify it exists in memory roadmap
+    app_key = res["app"]
+    assert "selfchecktestbutton" in dd.roadmap.map[app_key]["elements"]
+    print(f" -> Hover recorded into roadmap for app: {app_key}")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -156,6 +194,9 @@ def run_all():
     test_dpi_awareness()
     test_responsive_anchors_and_fill()
     test_sync_and_sanitizer()
+    test_clipboard()
+    test_window_snapping()
+    test_record_on_hover()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

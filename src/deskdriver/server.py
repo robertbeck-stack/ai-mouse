@@ -192,6 +192,61 @@ def system_prelearn(max_elements_per_app: int = 50) -> dict:
 
 
 
+@server.tool()
+def snap_window(window_search: str, side: str = "left") -> dict:
+    """
+    Snap a window to screen halves or quadrants ('left', 'right', 'top', 'bottom', 'center', 'full').
+    """
+    success = am.snap_window(window_search, side=side)
+    return {"status": "snapped" if success else "failed", "window": window_search, "side": side}
+
+
+@server.tool()
+def maximize_window(window_search: str) -> dict:
+    """Maximize a target application window."""
+    success = am.maximize_window(window_search)
+    return {"status": "maximized" if success else "failed", "window": window_search}
+
+
+@server.tool()
+def minimize_window(window_search: str) -> dict:
+    """Minimize a target application window."""
+    success = am.minimize_window(window_search)
+    return {"status": "minimized" if success else "failed", "window": window_search}
+
+
+@server.tool()
+def move_window(window_search: str, x: int, y: int, width: int, height: int) -> dict:
+    """Reposition and resize a target application window."""
+    success = am.move_window(window_search, x, y, width, height)
+    return {"status": "moved" if success else "failed", "window": window_search, "x": x, "y": y, "width": width, "height": height}
+
+
+@server.tool()
+def clipboard_paste(text: str) -> dict:
+    """
+    Instantly paste multi-line or long text (0.5 ms) into the focused field via clipboard and Ctrl+V.
+    """
+    success = am.clipboard_paste(text)
+    return {"status": "pasted" if success else "failed", "length": len(text)}
+
+
+@server.tool()
+def clipboard_get() -> dict:
+    """Read the current plain text stored on the Windows clipboard."""
+    text = am.get_clipboard_text()
+    return {"text": text, "length": len(text)}
+
+
+@server.tool()
+def record_current_element(custom_name: str = "") -> dict:
+    """
+    Record on Hover: inspects the element currently under the mouse cursor
+    and persists it into the spatial roadmap cache (ui_roadmap.json) with responsive anchors.
+    """
+    return am.record_element_at_cursor(custom_name=custom_name)
+
+
 def main():
     server.run()
 

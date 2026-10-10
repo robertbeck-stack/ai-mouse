@@ -283,3 +283,49 @@ def fill_input(
         "click_details": click_res,
     }
 
+
+def record_element_at_cursor(custom_name: str = "") -> dict:
+    """
+    Record on Hover: captures the interactive element directly under the cursor,
+    calculates responsive edge-anchors, and persists it into ui_roadmap.json.
+    """
+    from deskdriver.core.mouse import get_mouse_position
+    from deskdriver.automation.uia import inspect_at
+    from deskdriver.automation.windows import list_windows
+
+    x, y = get_mouse_position()
+    info = inspect_at(x, y)
+    win_title = info.get("window_title", "")
+
+    # Locate window bounding box
+    win_rect = None
+    if win_title:
+        for w in list_windows():
+            if win_title.lower() in w["title"].lower():
+                win_rect = w["rect"]
+                break
+    if not win_rect:
+        win_rect = {"left": 0, "top": 0, "right": 1920, "bottom": 1080}
+
+    rect = info.get("bounding_rect") or {"left": x - 10, "top": y - 10, "width": 20, "height": 20}
+    name = custom_name.strip() or info.get("name", "").strip() or f"Control_{x}_{y}"
+
+    element_dict = {
+        "name": name,
+        "control_type": info.get("control_type", "CustomControl"),
+        "center_x": rect.get("left", x) + max(1, rect.get("width", 20) // 2),
+        "center_y": rect.get("top", y) + max(1, rect.get("height", 20) // 2),
+        "rect": rect,
+    }
+
+    roadmap.learn_window(win_title or "CustomApp", [element_dict], win_rect)
+    return {
+        "status": "element_recorded",
+        "app": roadmap.get_app_key(win_title or "CustomApp"),
+        "element": element_dict["name"],
+        "control_type": element_dict["control_type"],
+        "center_x": element_dict["center_x"],
+        "center_y": element_dict["center_y"],
+    }
+
+
