@@ -113,6 +113,16 @@ def get_roadmap_stats() -> dict:
     return {"mapped_applications": apps, "total_apps": len(apps)}
 
 
+@server.tool()
+def system_prelearn(max_elements_per_app: int = 50) -> dict:
+    """
+    Scan all open windows and the Windows Taskbar to discover and index interactive controls
+    into ui_roadmap.json upfront so the AI has pre-learned desktop knowledge.
+    """
+    return am.run_system_prelearn(max_elements_per_app=max_elements_per_app)
+
+
+
 def main():
     server.run()
 

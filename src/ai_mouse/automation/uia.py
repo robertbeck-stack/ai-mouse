@@ -7,6 +7,7 @@ from ai_mouse.core.mouse import get_mouse_position
 from ai_mouse.automation.windows import list_windows, user32
 import uiautomation as auto
 
+# Comprehensive set of interactive control types across Windows & web apps
 CLICKABLE_TYPES = {
     auto.ControlType.ButtonControl,
     auto.ControlType.HyperlinkControl,
@@ -18,7 +19,57 @@ CLICKABLE_TYPES = {
     auto.ControlType.ComboBoxControl,
     auto.ControlType.EditControl,
     auto.ControlType.ListItemControl,
+    auto.ControlType.TreeItemControl,
+    auto.ControlType.SliderControl,
+    auto.ControlType.ThumbControl,
+    auto.ControlType.HeaderItemControl,
+    auto.ControlType.DataItemControl,
+    auto.ControlType.SpinnerControl,
+    auto.ControlType.ToolBarControl,
 }
+
+
+def is_interactive_control(child) -> bool:
+    """
+    Determine if a control is interactive either via its ControlType
+    or by detecting Windows Automation interaction patterns (Invoke, Toggle, Selection, etc.).
+    """
+    if child.ControlType in CLICKABLE_TYPES:
+        return True
+
+    # Check for actionable patterns on Custom or generic controls (common in Electron, React, Chrome)
+    try:
+        if (
+            child.GetInvokePattern() is not None
+            or child.GetTogglePattern() is not None
+            or child.GetSelectionItemPattern() is not None
+            or child.GetExpandCollapsePattern() is not None
+        ):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def get_element_name(ctrl) -> str:
+    """Extract the best descriptive name with fallbacks to AutomationId or HelpText."""
+    name = (ctrl.Name or "").strip()
+    if name:
+        return name
+
+    # Fallback to AutomationId
+    auto_id = getattr(ctrl, "AutomationId", "")
+    if auto_id and str(auto_id).strip():
+        return f"id:{auto_id.strip()}"
+
+    # Fallback to HelpText/Tooltip
+    help_text = getattr(ctrl, "HelpText", "")
+    if help_text and str(help_text).strip():
+        return help_text.strip()
+
+    return f"({ctrl.ControlTypeName})"
+
 
 
 def get_element_under_cursor() -> dict:
@@ -99,13 +150,12 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
                 rect = child.BoundingRectangle
                 w = rect.right - rect.left
                 h = rect.bottom - rect.top
-
-                if child.ControlType in CLICKABLE_TYPES and w > 0 and h > 0:
-                    name = (child.Name or "").strip()
+                if is_interactive_control(child) and w > 0 and h > 0:
+                    name = get_element_name(child)
                     cx = (rect.left + rect.right) // 2
                     cy = (rect.top + rect.bottom) // 2
                     elements.append({
-                        "name": name if name else f"({child.ControlTypeName})",
+                        "name": name,
                         "control_type": child.ControlTypeName,
                         "center_x": cx,
                         "center_y": cy,

@@ -1,6 +1,6 @@
 """
-AI Mouse - Live Web Stats Dashboard
-Serves an interactive real-time web dashboard at http://localhost:8765
+AI Mouse - Interactive Wiki, Pre-Learn & Live Stats Dashboard
+Serves a comprehensive real-time Wiki & Dashboard at http://localhost:8765
 Run: .\\.venv\\Scripts\\python dashboard.py
 """
 
@@ -26,130 +26,195 @@ HTML_CONTENT = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Mouse - Live Stats & Roadmap Dashboard</title>
+    <title>AI Mouse - Live Stats & Roadmap Wiki</title>
     <style>
         :root {
-            --bg: #0f172a;
-            --card: #1e293b;
-            --card-border: #334155;
+            --bg: #0b1120;
+            --card: #151f32;
+            --card-border: #243247;
             --primary: #38bdf8;
             --primary-hover: #0284c7;
-            --accent: #a855f7;
+            --accent: #c084fc;
             --text: #f8fafc;
             --text-muted: #94a3b8;
             --success: #22c55e;
             --badge-bg: #0f2744;
+            --btn-bg: #1e293b;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background: var(--bg); color: var(--text); padding: 24px; min-height: 100vh; }
-        .container { max-width: 1200px; margin: 0 auto; }
+        .container { max-width: 1250px; margin: 0 auto; }
         
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); }
-        .header-title h1 { font-size: 24px; font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 12px; }
+        .header-title h1 { font-size: 24px; font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 10px; }
         .header-title p { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
-        .live-indicator { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; background: rgba(34, 197, 94, 0.1); color: var(--success); padding: 6px 14px; border-radius: 9999px; border: 1px solid rgba(34, 197, 94, 0.3); }
+        
+        .header-actions { display: flex; align-items: center; gap: 12px; }
+        .btn-prelearn { background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 14px rgba(37,99,235,0.3); }
+        .btn-prelearn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+        .btn-prelearn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .live-indicator { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; background: rgba(34, 197, 94, 0.1); color: var(--success); padding: 7px 14px; border-radius: 9999px; border: 1px solid rgba(34, 197, 94, 0.3); }
         .pulse { width: 8px; height: 8px; background: var(--success); border-radius: 50%; box-shadow: 0 0 8px var(--success); animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
 
+        /* NAV TABS */
+        .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; }
+        .tab-btn { background: transparent; border: none; color: var(--text-muted); font-size: 15px; font-weight: 600; padding: 10px 18px; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+        .tab-btn:hover { color: var(--text); background: var(--card); }
+        .tab-btn.active { color: var(--primary); background: var(--card); border: 1px solid var(--card-border); }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* METRICS */
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .metric-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 18px; }
         .metric-card .label { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
         .metric-card .val { font-size: 28px; font-weight: 700; color: var(--text); margin-top: 6px; }
         .metric-card .sub { font-size: 12px; color: var(--primary); margin-top: 4px; }
 
-        .section-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
-        .search-box { background: var(--card); border: 1px solid var(--card-border); color: var(--text); padding: 8px 14px; border-radius: 8px; font-size: 14px; width: 260px; outline: none; }
+        /* LIVE INSPECTOR PANEL */
+        .live-panel { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+        .live-row { display: flex; flex-wrap: wrap; gap: 20px; }
+        .live-col { flex: 1; min-width: 260px; }
+        .live-col strong { color: var(--text-muted); font-size: 13px; display: block; margin-bottom: 4px; }
+        .live-val { font-size: 15px; font-weight: 600; color: var(--text); background: rgba(11,17,32,0.6); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+
+        /* SEARCH & FILTER BAR */
+        .search-bar-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+        .search-box { background: var(--card); border: 1px solid var(--card-border); color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 14px; width: 320px; outline: none; }
         .search-box:focus { border-color: var(--primary); }
 
-        .apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; margin-bottom: 24px; }
+        /* APPS GRID & WIKI */
+        .apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 20px; margin-bottom: 24px; }
         .app-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
         .app-header { background: rgba(255,255,255,0.03); padding: 16px 20px; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center; }
         .app-title { font-size: 18px; font-weight: 700; text-transform: capitalize; color: var(--primary); }
         .app-count { background: var(--badge-bg); color: var(--primary); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; border: 1px solid rgba(56, 189, 248, 0.3); }
         
-        .element-list { padding: 12px 16px; max-height: 380px; overflow-y: auto; flex: 1; }
+        .element-list { padding: 12px 16px; max-height: 400px; overflow-y: auto; flex: 1; }
         .element-list::-webkit-scrollbar { width: 6px; }
         .element-list::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
         
-        .element-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.02); }
+        .element-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: rgba(11, 17, 32, 0.5); border: 1px solid rgba(255,255,255,0.03); }
         .element-item:hover { background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.2); }
-        .el-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
-        .el-name { font-size: 13.5px; font-weight: 600; }
+        .el-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px; }
+        .el-name { font-size: 13.5px; font-weight: 600; color: #fff; }
         .el-type { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-        .el-coords { font-family: monospace; font-size: 12px; color: var(--accent); background: rgba(168, 85, 247, 0.1); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.2); }
+        .el-coords { font-family: monospace; font-size: 12px; color: var(--accent); background: rgba(192, 132, 252, 0.1); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(192, 132, 252, 0.2); }
 
-        .live-panel { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
-        .live-row { display: flex; flex-wrap: wrap; gap: 20px; }
-        .live-col { flex: 1; min-width: 260px; }
-        .live-col strong { color: var(--text-muted); font-size: 13px; display: block; margin-bottom: 4px; }
-        .live-val { font-size: 15px; font-weight: 600; color: var(--text); background: rgba(15,23,42,0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
+        /* FASTPATH WIKI TABLE */
+        .fastpath-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; overflow: hidden; margin-bottom: 24px; }
+        .fastpath-table th { background: rgba(255,255,255,0.03); padding: 12px 16px; text-align: left; font-size: 13px; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--card-border); }
+        .fastpath-table td { padding: 12px 16px; border-bottom: 1px solid var(--card-border); font-size: 14px; }
+        .fastpath-table tr:hover td { background: rgba(56,189,248,0.04); }
+        .btn-test-fp { background: var(--btn-bg); color: var(--primary); border: 1px solid var(--card-border); padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-test-fp:hover { background: var(--primary); color: #fff; }
 
-        footer { text-align: center; font-size: 13px; color: var(--text-muted); margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--card-border); }
+        /* NOTIFICATION TOAST */
+        #toast { position: fixed; bottom: 24px; right: 24px; background: #0284c7; color: white; padding: 12px 20px; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); font-size: 14px; font-weight: 600; display: none; z-index: 1000; }
+
+        footer { text-align: center; font-size: 13px; color: var(--text-muted); margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--card-border); }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <div class="header-title">
-                <h1>⚡ AI Mouse - Live Stats & Roadmap</h1>
-                <p>Rauntíma yfirlit yfir bendil, virk forrit og lærða gagnvirka takka</p>
+                <h1>⚡ AI Mouse & UI Wiki</h1>
+                <p>Rauntíma Vegvísir, Lærdómsbókasafn og Skjáborðsvöktun</p>
             </div>
-            <div class="live-indicator">
-                <span class="pulse"></span>
-                <span>RAUNTÍMA TENGT</span>
+            <div class="header-actions">
+                <button id="btnPrelearn" class="btn-prelearn" onclick="triggerPrelearn()">
+                    <span>🚀 Byrja System Pre-Learn</span>
+                </button>
+                <div class="live-indicator">
+                    <span class="pulse"></span>
+                    <span>TENGT</span>
+                </div>
             </div>
         </header>
 
-        <!-- TOP METRICS -->
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="label">Kortlögð forrit</div>
-                <div class="val" id="totalApps">-</div>
-                <div class="sub">Í ui_roadmap.json</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Lærðir takkar / stjórntæki</div>
-                <div class="val" id="totalElements">-</div>
-                <div class="sub" id="elementsSub">O(1) hraðsmellir</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Músarstaða (X, Y)</div>
-                <div class="val" id="cursorPos">-</div>
-                <div class="sub" id="cursorSub">Raunhnit á skjánum</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">OS Fastpaths (0 ms)</div>
-                <div class="val" id="fastpathsCount">33</div>
-                <div class="sub">Beinar URI flýtivísanir</div>
-            </div>
+        <!-- NAVIGATION TABS -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('overview')">📊 Yfirlit & Staða</button>
+            <button class="tab-btn" onclick="switchTab('wiki')">📖 Roadmap Wiki (Lærð forrit)</button>
+            <button class="tab-btn" onclick="switchTab('fastpaths')">⚡ OS Fastpaths Wiki</button>
         </div>
 
-        <!-- LIVE DESKTOP INSPECTION PANEL -->
-        <div class="live-panel">
-            <div class="section-title">
-                <span>🖥️ Núverandi staða á skjáborðinu</span>
-            </div>
-            <div class="live-row">
-                <div class="live-col">
-                    <strong>Virkur gluggi í forgrunni:</strong>
-                    <div class="live-val" id="activeWindow">-</div>
+        <!-- TAB 1: OVERVIEW & STATS -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="label">Kortlögð forrit</div>
+                    <div class="val" id="totalApps">-</div>
+                    <div class="sub">Í ui_roadmap.json</div>
                 </div>
-                <div class="live-col">
-                    <strong>Hvað er beint undir bendlinum núna:</strong>
-                    <div class="live-val" id="underCursor">-</div>
+                <div class="metric-card">
+                    <div class="label">Lærðir takkar / stjórntæki</div>
+                    <div class="val" id="totalElements">-</div>
+                    <div class="sub">O(1) hraðsmellir (< 1 ms)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Músarstaða (X, Y)</div>
+                    <div class="val" id="cursorPos">-</div>
+                    <div class="sub">Raunhnit á skjánum</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">OS Fastpaths</div>
+                    <div class="val" id="fastpathsCount">33</div>
+                    <div class="sub">0 ms URI flýtivísanir</div>
                 </div>
             </div>
+
+            <div class="live-panel">
+                <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--primary);">🖥️ Lifandi staða á skjáborðinu</div>
+                <div class="live-row">
+                    <div class="live-col">
+                        <strong>Virkur gluggi í forgrunni:</strong>
+                        <div class="live-val" id="activeWindow">-</div>
+                    </div>
+                    <div class="live-col">
+                        <strong>Hvað er beint undir bendlinum núna:</strong>
+                        <div class="live-val" id="underCursor">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUMMARY PREVIEW OF TOP APPS -->
+            <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Kortlögð forrit í fljótu bragði:</div>
+            <div class="apps-grid" id="overviewAppsGrid"></div>
         </div>
 
-        <!-- ROADMAP KNOWLEDGE CARDS -->
-        <div class="section-title">
-            <span>🗺️ Lærdómskortið (Kortlögð forrit og hnappar)</span>
-            <input type="text" id="searchInput" class="search-box" placeholder="Leita að takka eða forriti..." oninput="filterElements()">
+        <!-- TAB 2: ROADMAP WIKI -->
+        <div id="tab-wiki" class="tab-content">
+            <div class="search-bar-row">
+                <div style="font-size: 16px; font-weight: 700; color: var(--text);">Öll lærð stjórntæki og takkar í kerfinu:</div>
+                <input type="text" id="wikiSearchInput" class="search-box" placeholder="Sía eftir takka, forriti eða tegund..." oninput="filterWiki()">
+            </div>
+            <div class="apps-grid" id="wikiAppsGrid"></div>
         </div>
 
-        <div class="apps-grid" id="appsGrid">
-            <!-- Dynamically populated -->
+        <!-- TAB 3: FASTPATHS WIKI -->
+        <div id="tab-fastpaths" class="tab-content">
+            <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Windows Direct OS Fastpaths (0 ms Navigation):</div>
+            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">Þessar flýtivísanir gera gervigreindinni kleift að hoppa beint inn í Windows stillingar eða forrit á 0 ms án nokkurra músarsmella.</p>
+            
+            <table class="fastpath-table">
+                <thead>
+                    <tr>
+                        <th>Skipun / Lykill</th>
+                        <th>Windows URI</th>
+                        <th>Lýsing</th>
+                        <th>Aðgerð</th>
+                    </tr>
+                </thead>
+                <tbody id="fastpathsBody"></tbody>
+            </table>
         </div>
+
+        <div id="toast"></div>
 
         <footer>
             AI Mouse & UI Automation MCP Server &bull; <a href="https://github.com/robertbeck-stack/ai-mouse" target="_blank" style="color: var(--primary); text-decoration: none;">GitHub Repository</a>
@@ -159,6 +224,29 @@ HTML_CONTENT = """<!DOCTYPE html>
     <script>
         let fullData = null;
 
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.display = 'block';
+            setTimeout(() => { t.style.display = 'none'; }, 3500);
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            if (tabId === 'overview') {
+                document.querySelectorAll('.tab-btn')[0].classList.add('active');
+                document.getElementById('tab-overview').classList.add('active');
+            } else if (tabId === 'wiki') {
+                document.querySelectorAll('.tab-btn')[1].classList.add('active');
+                document.getElementById('tab-wiki').classList.add('active');
+            } else if (tabId === 'fastpaths') {
+                document.querySelectorAll('.tab-btn')[2].classList.add('active');
+                document.getElementById('tab-fastpaths').classList.add('active');
+            }
+        }
+
         async function fetchStats() {
             try {
                 const res = await fetch('/api/stats');
@@ -166,7 +254,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 fullData = data;
                 renderData(data);
             } catch (e) {
-                console.error("Villa við að sækja stöðu:", e);
+                console.error("Villa við að sækja gögn:", e);
             }
         }
 
@@ -183,11 +271,13 @@ HTML_CONTENT = """<!DOCTYPE html>
                 document.getElementById('underCursor').innerText = "(Ekkert stjórntæki greint)";
             }
 
-            renderAppsGrid(data.roadmap, document.getElementById('searchInput').value);
+            renderAppsGrid('overviewAppsGrid', data.roadmap, '', 5);
+            renderAppsGrid('wikiAppsGrid', data.roadmap, document.getElementById('wikiSearchInput').value, 999);
+            renderFastpathsTable(data.fastpaths || {});
         }
 
-        function renderAppsGrid(roadmap, query) {
-            const grid = document.getElementById('appsGrid');
+        function renderAppsGrid(targetId, roadmap, query, maxItems) {
+            const grid = document.getElementById(targetId);
             const q = (query || "").toLowerCase().trim();
             grid.innerHTML = '';
 
@@ -216,10 +306,11 @@ HTML_CONTENT = """<!DOCTYPE html>
                 const list = document.createElement('div');
                 list.className = 'element-list';
 
-                if (filtered.length === 0) {
+                const itemsToShow = filtered.slice(0, maxItems);
+                if (itemsToShow.length === 0) {
                     list.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; padding: 12px;">Engir takkar fundust.</div>';
                 } else {
-                    for (const el of filtered) {
+                    for (const el of itemsToShow) {
                         const item = document.createElement('div');
                         item.className = 'element-item';
                         item.innerHTML = `
@@ -231,19 +322,80 @@ HTML_CONTENT = """<!DOCTYPE html>
                         `;
                         list.appendChild(item);
                     }
+                    if (filtered.length > maxItems) {
+                        const more = document.createElement('div');
+                        more.style.textAlign = 'center';
+                        more.style.padding = '8px';
+                        more.style.fontSize = '12px';
+                        more.style.color = 'var(--primary)';
+                        more.innerText = `+ ${filtered.length - maxItems} aðrir takkar (sjá í Roadmap Wiki)`;
+                        list.appendChild(more);
+                    }
                 }
                 card.appendChild(list);
                 grid.appendChild(card);
             }
         }
 
-        function filterElements() {
+        function filterWiki() {
             if (fullData) {
-                renderAppsGrid(fullData.roadmap, document.getElementById('searchInput').value);
+                renderAppsGrid('wikiAppsGrid', fullData.roadmap, document.getElementById('wikiSearchInput').value, 999);
             }
         }
 
-        // Poll every 1.5 seconds for real-time updates
+        function renderFastpathsTable(fastpaths) {
+            const tbody = document.getElementById('fastpathsBody');
+            if (tbody.children.length > 0) return; // Only populate once
+            tbody.innerHTML = '';
+
+            for (const [key, uri] of Object.entries(fastpaths)) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${key}</strong></td>
+                    <td><code style="color: var(--primary); font-family: monospace;">${uri}</code></td>
+                    <td style="color: var(--text-muted);">Opnar beint ${key} stillingar / forrit</td>
+                    <td>
+                        <button class="btn-test-fp" onclick="launchFastpath('${key}')">Prófa / Opna</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
+        async function launchFastpath(target) {
+            try {
+                const res = await fetch('/api/fastpath', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target: target })
+                });
+                const data = await res.json();
+                showToast(`Opnaði flýtivísun: ${target}`);
+            } catch (e) {
+                alert("Villa við að opna flýtivísun: " + e);
+            }
+        }
+
+        async function triggerPrelearn() {
+            const btn = document.getElementById('btnPrelearn');
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳ Skannar forrit og stiku...</span>';
+            showToast('Hóf kerfisskönnun (System Pre-Learn)...');
+
+            try {
+                const res = await fetch('/api/prelearn', { method: 'POST' });
+                const data = await res.json();
+                showToast(`Pre-Learn lokið! Fann ${data.total_new_elements} takka í ${data.scanned_apps.length} forritum.`);
+                await fetchStats();
+            } catch (e) {
+                alert("Pre-learn villa: " + e);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🚀 Byrja System Pre-Learn</span>';
+            }
+        }
+
+        // Live polling
         fetchStats();
         setInterval(fetchStats, 1500);
     </script>
@@ -266,8 +418,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
-
-            # Gather live data
             try:
                 mx, my = am.get_mouse_position()
                 under = am.get_element_under_cursor()
@@ -287,7 +437,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "active_window": active_win,
                 "total_apps": len(roadmap_data),
                 "total_elements": total_elements,
-                "fastpaths_count": len(FASTPATHS),
+                "fastpaths": FASTPATHS,
                 "roadmap": roadmap_data,
                 "timestamp": datetime.now().isoformat(),
             }
@@ -296,8 +446,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def do_POST(self):
+        clean_path = self.path.split("?")[0].rstrip("/")
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+        try:
+            req_data = json.loads(body)
+        except Exception:
+            req_data = {}
+
+        if clean_path == "/api/prelearn":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            # Execute system pre-learn
+            res = am.run_system_prelearn()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/fastpath":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            target = req_data.get("target", "")
+            success = am.execute_fastpath(target)
+            self.wfile.write(json.dumps({"success": success, "target": target}).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def log_message(self, format, *args):
-        # Suppress noisy HTTP request logging in terminal
         pass
 
 
@@ -324,11 +505,10 @@ def run_dashboard(port: int | None = None, open_browser: bool = True):
     server = ThreadingHTTPServer(("127.0.0.1", actual_port), DashboardHandler)
     url = f"http://localhost:{actual_port}"
     print("=" * 65)
-    print("  [+] AI MOUSE LIVE DASHBOARD ER I GANGI:")
+    print("  [+] AI MOUSE LIVE WIKI & DASHBOARD ER I GANGI:")
     print(f"  [>] Opnadu i vafra: {url}")
     print("  (Yttu a Ctrl+C til ad stodva)")
     print("=" * 65)
-
 
     if open_browser:
         try:
@@ -341,7 +521,6 @@ def run_dashboard(port: int | None = None, open_browser: bool = True):
     except KeyboardInterrupt:
         print("\nStodvadi vefthjoninn.")
         server.server_close()
-
 
 
 if __name__ == "__main__":

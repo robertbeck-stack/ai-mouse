@@ -16,6 +16,7 @@ from ai_mouse.automation.uia import (
 )
 from ai_mouse.navigation.roadmap import fast_click_element, roadmap
 from ai_mouse.navigation.fastpaths import execute_fastpath
+from ai_mouse.navigation.prelearn import run_system_prelearn
 
 __version__ = "0.1.0"
 
@@ -32,4 +33,6 @@ __all__ = [
     "fast_click_element",
     "roadmap",
     "execute_fastpath",
+    "run_system_prelearn",
 ]
+
