@@ -83,8 +83,8 @@ Built-in privacy sanitizer scrubs document filenames, file paths (`C:\Users\...`
 
 ```powershell
 # Clone the repository
-git clone https://github.com/robertbeck-stack/ai-mouse.git
-cd ai-mouse
+git clone https://github.com/robertbeck-stack/deskdriver.git
+cd deskdriver
 
 # Create and activate virtual environment
 python -m venv .venv
@@ -129,7 +129,7 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
 {
   "mcpServers": {
     "deskdriver": {
-      "command": "C:\\path\\to\\ai-mouse\\.venv\\Scripts\\python.exe",
+      "command": "C:\\path\\to\\deskdriver\\.venv\\Scripts\\python.exe",
       "args": ["-m", "deskdriver.server"]
     }
   }
@@ -198,7 +198,7 @@ am.move_mouse(100, 100)
 ## 🗺️ Project Architecture
 
 ```text
-ai-mouse/
+deskdriver/
 ├── src/
 │   ├── deskdriver/                # Primary package
 │   │   ├── core/                  # Low-level Win32 integration
