@@ -329,3 +329,62 @@ def record_element_at_cursor(custom_name: str = "") -> dict:
     }
 
 
+def wait_for_element(
+    element_name: str,
+    window_search: str = "",
+    timeout: float = 3.0,
+    poll_interval: float = 0.05,
+) -> dict | None:
+    """
+    Poll until an element becomes available in the target window or timeout expires.
+    Checks roadmap cache first, then scans UIA tree dynamically.
+    Returns the resolved element dict with center coordinates, or None on timeout.
+    """
+    from deskdriver.automation.windows import list_windows
+    from deskdriver.automation.uia import list_clickable_elements
+
+    start = time.time()
+    while time.time() - start < timeout:
+        wins = list_windows()
+        target_win = None
+        if window_search:
+            q = window_search.lower()
+            for w in wins:
+                if q in w["title"].lower():
+                    target_win = w
+                    break
+        elif wins:
+            target_win = wins[0]
+
+        if target_win:
+            cached = roadmap.find_cached_element(target_win["title"], element_name, target_win["rect"])
+            if cached:
+                return cached
+
+            elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
+            q_el = element_name.lower().strip()
+            for el in elements:
+                if q_el in el["name"].lower():
+                    roadmap.learn_window(target_win["title"], [el], target_win["rect"])
+                    return el
+
+        time.sleep(poll_interval)
+    return None
+
+
+def wait_and_click(
+    element_name: str,
+    window_search: str = "",
+    timeout: float = 3.0,
+    instant: bool = True,
+) -> dict:
+    """
+    Wait for an element to appear in a window and click it immediately (atomic agent action).
+    """
+    el = wait_for_element(element_name, window_search=window_search, timeout=timeout)
+    if not el:
+        return {"error": f"Timed out waiting for element {element_name!r} after {timeout}s"}
+    return fast_click_element(element_name, window_search=window_search, instant=instant)
+
+
+

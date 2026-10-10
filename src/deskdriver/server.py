@@ -247,6 +247,37 @@ def record_current_element(custom_name: str = "") -> dict:
     return am.record_element_at_cursor(custom_name=custom_name)
 
 
+@server.tool()
+def wait_for_window(window_search: str, timeout: float = 3.0) -> dict:
+    """
+    Poll until a target window appears and becomes visible.
+    Avoids arbitrary sleep delays in AI agent execution.
+    """
+    w = am.wait_for_window(window_search, timeout=timeout)
+    if w:
+        return {"status": "found", "window": w}
+    return {"status": "timeout", "error": f"Window {window_search!r} did not appear within {timeout}s"}
+
+
+@server.tool()
+def wait_for_element(element_name: str, window_search: str = "", timeout: float = 3.0) -> dict:
+    """
+    Poll until a specific UI control/button is ready and rendered.
+    """
+    el = am.wait_for_element(element_name, window_search=window_search, timeout=timeout)
+    if el:
+        return {"status": "found", "element": el}
+    return {"status": "timeout", "error": f"Element {element_name!r} not found within {timeout}s"}
+
+
+@server.tool()
+def wait_and_click(element_name: str, window_search: str = "", timeout: float = 3.0, instant: bool = True) -> dict:
+    """
+    Wait for an element to appear and click it in one atomic action.
+    """
+    return am.wait_and_click(element_name, window_search=window_search, timeout=timeout, instant=instant)
+
+
 def main():
     server.run()
 

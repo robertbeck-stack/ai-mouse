@@ -126,29 +126,71 @@ def move_window(hwnd_or_title: int | str, x: int, y: int, width: int, height: in
     return bool(user32.MoveWindow(hwnd, int(x), int(y), int(width), int(height), True))
 
 
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
+def get_window_monitor_work_area(hwnd: int) -> dict:
+    """Get the usable desktop bounds (excluding taskbar) for the monitor displaying this window."""
+    try:
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        hmon = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST = 2
+        if hmon and user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            r = mi.rcWork
+            return {
+                "left": r.left,
+                "top": r.top,
+                "right": r.right,
+                "bottom": r.bottom,
+                "width": r.right - r.left,
+                "height": r.bottom - r.top,
+            }
+    except Exception:
+        pass
+
+    # Fallback to primary work area
+    rect = wintypes.RECT()
+    user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA = 0x0030
+    return {
+        "left": rect.left,
+        "top": rect.top,
+        "right": rect.right,
+        "bottom": rect.bottom,
+        "width": rect.right - rect.left,
+        "height": rect.bottom - rect.top,
+    }
+
+
 def snap_window(hwnd_or_title: int | str, side: str = "left") -> bool:
     """
-    Snap a window to screen halves or layout quadrants.
-    Supports: 'left', 'right', 'top', 'bottom', 'center', 'full'.
+    Snap a window to screen halves or layout quadrants on its current monitor.
+    Supports multi-monitor setups automatically.
+    Sides: 'left', 'right', 'top', 'bottom', 'center', 'full'.
     """
     ensure_desktop()
     hwnd = find_window_hwnd(hwnd_or_title)
     if not hwnd:
         return False
 
-    # Get primary display usable work area (excluding taskbar)
-    rect = wintypes.RECT()
-    user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA = 0x0030
-    sw = rect.right - rect.left
-    sh = rect.bottom - rect.top
-    sx = rect.left
-    sy = rect.top
-
     s = side.lower().strip()
     if s in ("full", "maximize"):
         return maximize_window(hwnd)
 
     restore_window(hwnd)
+
+    # Multi-monitor work area detection (excludes taskbar on that specific display)
+    work = get_window_monitor_work_area(hwnd)
+    sw = work["width"]
+    sh = work["height"]
+    sx = work["left"]
+    sy = work["top"]
+
     if s == "left":
         x, y, w, h = sx, sy, sw // 2, sh
     elif s == "right":
@@ -165,4 +207,26 @@ def snap_window(hwnd_or_title: int | str, side: str = "left") -> bool:
         return False
 
     return bool(user32.MoveWindow(hwnd, x, y, w, h, True))
+
+
+def wait_for_window(
+    hwnd_or_title: int | str, timeout: float = 3.0, poll_interval: float = 0.05
+) -> dict | None:
+    """
+    Poll until a target window appears and becomes visible, or timeout expires.
+    Eliminates arbitrary sleep delays in agent execution.
+    Returns window dict (with hwnd, title, rect) or None on timeout.
+    """
+    start = time.time()
+    q = str(hwnd_or_title).lower().strip()
+    while time.time() - start < timeout:
+        for w in list_windows():
+            if isinstance(hwnd_or_title, int):
+                if w["hwnd"] == hwnd_or_title:
+                    return w
+            elif q in w["title"].lower():
+                return w
+        time.sleep(poll_interval)
+    return None
+
 

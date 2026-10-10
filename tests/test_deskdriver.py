@@ -29,6 +29,9 @@ def test_shim_parity():
     assert am.snap_window is dd.snap_window
     assert am.clipboard_paste is dd.clipboard_paste
     assert am.record_element_at_cursor is dd.record_element_at_cursor
+    assert am.wait_for_window is dd.wait_for_window
+    assert am.wait_for_element is dd.wait_for_element
+    assert am.wait_and_click is dd.wait_and_click
     print(" -> Backward-compatibility shim matches deskdriver 100%")
 
 
@@ -182,6 +185,34 @@ def test_record_on_hover():
     print(f" -> Hover recorded into roadmap for app: {app_key}")
 
 
+def test_multimonitor_and_waiting():
+    print("Testing multi-monitor work area detection...")
+    wins = dd.list_windows()
+    assert len(wins) > 0
+    from deskdriver.automation.windows import get_window_monitor_work_area
+    work = get_window_monitor_work_area(wins[0]["hwnd"])
+    assert "width" in work and work["width"] > 200
+    assert "height" in work and work["height"] > 200
+    print(f" -> Monitor work area for active window: {work['width']}x{work['height']} (offset {work['left']},{work['top']})")
+
+    print("Testing smart waiting primitives...")
+    # Timeout check
+    t0 = dd.wait_for_window("NonExistentWindow_99999", timeout=0.08)
+    assert t0 is None
+
+    # Found check
+    target_title = wins[0]["title"][:15]
+    found = dd.wait_for_window(target_title, timeout=1.0)
+    assert found is not None
+    assert "hwnd" in found
+    print(f" -> Smart wait resolved window {target_title!r} instantly")
+
+    # Element wait check on cached element
+    cached_el = dd.wait_for_element("SelfCheckTestButton", timeout=0.5)
+    assert cached_el is not None
+    print(" -> Smart wait resolved cached element")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -197,6 +228,7 @@ def run_all():
     test_clipboard()
     test_window_snapping()
     test_record_on_hover()
+    test_multimonitor_and_waiting()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

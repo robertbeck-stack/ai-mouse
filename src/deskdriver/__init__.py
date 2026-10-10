@@ -25,6 +25,7 @@ from deskdriver.automation.windows import (
     restore_window,
     move_window,
     snap_window,
+    wait_for_window,
 )
 from deskdriver.automation.uia import (
     get_element_under_cursor,
@@ -35,6 +36,8 @@ from deskdriver.navigation.roadmap import (
     fast_click_element,
     fill_input,
     record_element_at_cursor,
+    wait_for_element,
+    wait_and_click,
     roadmap,
 )
 from deskdriver.navigation.fastpaths import execute_fastpath
@@ -68,6 +71,7 @@ __all__ = [
     "restore_window",
     "move_window",
     "snap_window",
+    "wait_for_window",
 
     # UIA Inspection & Roadmap
     "get_element_under_cursor",
@@ -76,6 +80,8 @@ __all__ = [
     "fast_click_element",
     "fill_input",
     "record_element_at_cursor",
+    "wait_for_element",
+    "wait_and_click",
     "roadmap",
     "execute_fastpath",
     "run_system_prelearn",
