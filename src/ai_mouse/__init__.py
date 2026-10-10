@@ -7,6 +7,8 @@ from ai_mouse.core.mouse import (
     move_mouse,
     mouse_click,
     move_and_click,
+    mouse_scroll,
+    drag_and_drop,
 )
 from ai_mouse.core.keyboard import press_hotkey, type_text, COMMON_HOTKEYS
 from ai_mouse.automation.windows import list_windows, focus_window
@@ -16,7 +18,7 @@ from ai_mouse.automation.uia import (
     get_element_at,
     list_clickable_elements,
 )
-from ai_mouse.navigation.roadmap import fast_click_element, roadmap
+from ai_mouse.navigation.roadmap import fast_click_element, fill_input, roadmap
 from ai_mouse.navigation.fastpaths import execute_fastpath
 from ai_mouse.navigation.prelearn import run_system_prelearn
 
@@ -27,6 +29,8 @@ __all__ = [
     "move_mouse",
     "mouse_click",
     "move_and_click",
+    "mouse_scroll",
+    "drag_and_drop",
     "press_hotkey",
     "type_text",
     "COMMON_HOTKEYS",
@@ -37,6 +41,7 @@ __all__ = [
     "get_element_at",
     "list_clickable_elements",
     "fast_click_element",
+    "fill_input",
     "roadmap",
     "execute_fastpath",
     "run_system_prelearn",

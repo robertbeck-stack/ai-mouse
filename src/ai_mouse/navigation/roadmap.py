@@ -57,6 +57,8 @@ class UIRoadmap:
 
         win_left = window_rect["left"]
         win_top = window_rect["top"]
+        win_w = max(1, window_rect.get("right", win_left + 800) - win_left)
+        win_h = max(1, window_rect.get("bottom", win_top + 600) - win_top)
 
         for el in elements:
             name = (el.get("name") or "").strip().lower()
@@ -65,6 +67,8 @@ class UIRoadmap:
 
             rel_x = el["center_x"] - win_left
             rel_y = el["center_y"] - win_top
+            anchor_right = rel_x > (win_w * 0.65)
+            anchor_bottom = rel_y > (win_h * 0.65)
 
             self.map[app_key]["elements"][name] = {
                 "name": el["name"],
@@ -72,6 +76,10 @@ class UIRoadmap:
                 "shortcut": el.get("shortcut", ""),
                 "rel_x": rel_x,
                 "rel_y": rel_y,
+                "anchor_right": anchor_right,
+                "anchor_bottom": anchor_bottom,
+                "dist_from_right": win_w - rel_x,
+                "dist_from_bottom": win_h - rel_y,
                 "width": el.get("rect", {}).get("width", 0),
                 "height": el.get("rect", {}).get("height", 0),
             }
@@ -121,8 +129,21 @@ class UIRoadmap:
                     break
 
         if matched:
-            abs_x = window_rect["left"] + matched["rel_x"]
-            abs_y = window_rect["top"] + matched["rel_y"]
+            curr_w = window_rect.get("right", 0) - window_rect.get("left", 0)
+            curr_h = window_rect.get("bottom", 0) - window_rect.get("top", 0)
+
+            # Responsive right-anchor adjustment
+            if matched.get("anchor_right") and curr_w > 0 and matched.get("dist_from_right", 0) > 0:
+                abs_x = window_rect["right"] - matched["dist_from_right"]
+            else:
+                abs_x = window_rect["left"] + matched["rel_x"]
+
+            # Responsive bottom-anchor adjustment
+            if matched.get("anchor_bottom") and curr_h > 0 and matched.get("dist_from_bottom", 0) > 0:
+                abs_y = window_rect["bottom"] - matched["dist_from_bottom"]
+            else:
+                abs_y = window_rect["top"] + matched["rel_y"]
+
             return {
                 "name": matched["name"],
                 "control_type": matched["control_type"],
@@ -223,3 +244,42 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
         return {"status": "clicked_and_learned", "name": matched["name"], "x": cx, "y": cy, "source": "scan"}
 
     return {"error": f"Element {element_name!r} not found in window {target_win['title']!r}"}
+ 
+ 
+def fill_input(
+    element_name: str,
+    text: str,
+    window_search: str = "",
+    submit: bool = False,
+    clear_existing: bool = True,
+    instant: bool = True,
+) -> dict:
+    """
+    Combined fluid action for AI:
+    1. Focuses window and clicks directly into the input control (via cache or fast UIA scan).
+    2. Clears any existing text (Ctrl+A, Backspace) if clear_existing is True.
+    3. Types Unicode text.
+    4. Optionally submits with Enter if submit=True.
+    """
+    click_res = fast_click_element(element_name, window_search=window_search, instant=instant)
+    if "error" in click_res:
+        return click_res
+
+    time.sleep(0.04)
+    from ai_mouse.core.keyboard import press_hotkey, type_text
+
+    if clear_existing:
+        press_hotkey("ctrl+a")
+        time.sleep(0.02)
+        press_hotkey("backspace")
+        time.sleep(0.02)
+
+    type_text(text, enter=submit)
+    return {
+        "status": "input_filled",
+        "element": element_name,
+        "text_length": len(text),
+        "submitted": submit,
+        "click_details": click_res,
+    }
+

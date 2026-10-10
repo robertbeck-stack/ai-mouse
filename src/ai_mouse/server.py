@@ -49,6 +49,31 @@ def move_and_click(
 
 
 @server.tool()
+def mouse_scroll(delta: int = 120) -> dict:
+    """
+    Scroll the mouse wheel vertically.
+    Positive delta scrolls up; negative delta scrolls down (e.g. 120 or -120).
+    """
+    am.mouse_scroll(delta=delta)
+    return {"status": "scrolled", "delta": delta}
+
+
+@server.tool()
+def drag_and_drop(
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    smooth: bool = True,
+    duration: float = 0.35,
+) -> dict:
+    """Click and drag from (start_x, start_y) to (end_x, end_y)."""
+    am.drag_and_drop(start_x, start_y, end_x, end_y, smooth=smooth, duration=duration)
+    return {"status": "dragged_and_dropped", "from": [start_x, start_y], "to": [end_x, end_y]}
+
+
+
+@server.tool()
 def press_hotkey(hotkey: str) -> dict:
     """
     Press and release a keyboard combination (e.g. 'ctrl+s', 'win+shift+s', 'ctrl+t', 'enter').
@@ -113,6 +138,29 @@ def fast_click(element_name: str, window_search: str = "", instant: bool = True)
     Automatically learns on cache miss.
     """
     return am.fast_click_element(element_name=element_name, window_search=window_search, instant=instant)
+
+
+@server.tool()
+def fill_input(
+    element_name: str,
+    text: str,
+    window_search: str = "",
+    submit: bool = False,
+    clear_existing: bool = True,
+) -> dict:
+    """
+    Combined high-efficiency tool for AI:
+    Focuses the window, clicks into the input field (via Roadmap cache or UIA),
+    clears previous text, types new text, and optionally presses Enter to submit.
+    """
+    return am.fill_input(
+        element_name=element_name,
+        text=text,
+        window_search=window_search,
+        submit=submit,
+        clear_existing=clear_existing,
+    )
+
 
 
 @server.tool()

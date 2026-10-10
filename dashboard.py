@@ -145,12 +145,15 @@ HTML_CONTENT = """<!DOCTYPE html>
                 <p>Rauntíma Vegvísir, Flýtilyklar (Hotkeys) og Skjáborðsvöktun</p>
             </div>
             <div class="header-actions">
+                <button class="btn-action" style="padding: 10px 16px; font-weight: 700; font-size: 13.5px;" onclick="fetchStats()">
+                    <span>🔄 Uppfæra stöðu</span>
+                </button>
                 <button id="btnPrelearn" class="btn-prelearn" onclick="triggerPrelearn()">
                     <span>🚀 Byrja System Pre-Learn</span>
                 </button>
                 <div class="live-indicator">
                     <span class="pulse"></span>
-                    <span>TENGT</span>
+                    <span>VIRKT</span>
                 </div>
             </div>
         </header>
@@ -177,28 +180,14 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <div class="sub">O(1) hraðsmellir (< 1 ms)</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Músarstaða (X, Y)</div>
-                    <div class="val" id="cursorPos">-</div>
-                    <div class="sub">Raunhnit á skjánum</div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">Hotkeys & Fastpaths</div>
-                    <div class="val" id="totalShortcutsCount">64</div>
+                    <div class="label">Flýtilyklar (Hotkeys)</div>
+                    <div class="val" id="totalShortcutsCount">-</div>
                     <div class="sub">0.5 ms beinar aðgerðir</div>
                 </div>
-            </div>
-
-            <div class="live-panel">
-                <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--primary);">🖥️ Lifandi staða á skjáborðinu</div>
-                <div class="live-row">
-                    <div class="live-col">
-                        <strong>Virkur gluggi í forgrunni:</strong>
-                        <div class="live-val" id="activeWindow">-</div>
-                    </div>
-                    <div class="live-col">
-                        <strong>Hvað er beint undir bendlinum núna:</strong>
-                        <div class="live-val" id="underCursor">-</div>
-                    </div>
+                <div class="metric-card">
+                    <div class="label">OS Fastpaths</div>
+                    <div class="val" id="totalFastpathsCount">-</div>
+                    <div class="sub">0 ms Windows URI slóðir</div>
                 </div>
             </div>
 
@@ -304,15 +293,10 @@ HTML_CONTENT = """<!DOCTYPE html>
         function renderData(data) {
             document.getElementById('totalApps').innerText = data.total_apps || 0;
             document.getElementById('totalElements').innerText = data.total_elements || 0;
-            document.getElementById('cursorPos').innerText = `(${data.mouse.x}, ${data.mouse.y})`;
-            document.getElementById('activeWindow').innerText = data.active_window || "(Enginn)";
-            
-            const under = data.under_cursor;
-            if (under && !under.error) {
-                document.getElementById('underCursor').innerText = `${under.name || '(án heitis)'} [${under.control_type}]`;
-            } else {
-                document.getElementById('underCursor').innerText = "(Ekkert stjórntæki greint)";
-            }
+            const hkCount = Object.keys(data.common_hotkeys || {}).length;
+            document.getElementById('totalShortcutsCount').innerText = hkCount;
+            const fpCount = Object.keys(data.fastpaths || {}).length;
+            document.getElementById('totalFastpathsCount').innerText = fpCount;
 
             renderAppsGrid('overviewAppsGrid', data.roadmap, '', 5);
             renderAppsGrid('wikiAppsGrid', data.roadmap, document.getElementById('wikiSearchInput').value, 999);
@@ -493,7 +477,6 @@ HTML_CONTENT = """<!DOCTYPE html>
         }
 
         fetchStats();
-        setInterval(fetchStats, 1500);
     </script>
 </body>
 </html>
@@ -514,23 +497,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
-            try:
-                mx, my = am.get_mouse_position()
-                under = am.get_element_under_cursor()
-                wins = am.list_windows()
-                active_win = wins[0]["title"] if wins else "Unknown"
-            except Exception as e:
-                mx, my = 0, 0
-                under = {"error": str(e)}
-                active_win = "Unknown"
-
             roadmap_data = am.roadmap.map
             total_elements = sum(len(app.get("elements", {})) for app in roadmap_data.values())
 
             data = {
-                "mouse": {"x": mx, "y": my},
-                "under_cursor": under,
-                "active_window": active_win,
                 "total_apps": len(roadmap_data),
                 "total_elements": total_elements,
                 "common_hotkeys": COMMON_HOTKEYS,

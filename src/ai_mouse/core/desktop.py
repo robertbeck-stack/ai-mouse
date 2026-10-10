@@ -10,8 +10,21 @@ kernel32 = ctypes.windll.kernel32
 ole32 = ctypes.windll.ole32
 
 
+def enable_dpi_awareness():
+    """Ensure process is Per-Monitor DPI aware for accurate screen coordinates."""
+    try:
+        # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+        user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
 def attach_thread_desktop():
     """Ensure the calling thread is attached to the interactive 'default' desktop."""
+    enable_dpi_awareness()
     try:
         hdesk = user32.OpenDesktopW("default", 0, False, 0x01FF)
         if hdesk:

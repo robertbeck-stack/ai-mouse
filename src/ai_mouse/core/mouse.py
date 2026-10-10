@@ -19,6 +19,7 @@ MOUSEEVENTF_RIGHTDOWN = 0x0008
 MOUSEEVENTF_RIGHTUP = 0x0010
 MOUSEEVENTF_MIDDLEDOWN = 0x0020
 MOUSEEVENTF_MIDDLEUP = 0x0040
+MOUSEEVENTF_WHEEL = 0x0800
 
 
 def get_mouse_position() -> tuple[int, int]:
@@ -109,3 +110,33 @@ def move_and_click(
     move_mouse(x, y, smooth=smooth, duration=duration)
     time.sleep(0.04)
     mouse_click(button=button, clicks=clicks)
+
+
+def mouse_scroll(delta: int = 120):
+    """
+    Scroll mouse wheel vertically.
+    Positive delta scrolls up; negative delta scrolls down.
+    A standard wheel notch is 120 (or -120).
+    """
+    ensure_desktop()
+    user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta, 0)
+
+
+def drag_and_drop(
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    smooth: bool = True,
+    duration: float = 0.35,
+):
+    """Click and drag from (start_x, start_y) to (end_x, end_y)."""
+    ensure_desktop()
+    move_mouse(start_x, start_y, smooth=smooth, duration=0.15)
+    time.sleep(0.05)
+    user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+    time.sleep(0.05)
+    move_mouse(end_x, end_y, smooth=smooth, duration=duration)
+    time.sleep(0.05)
+    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+
