@@ -1,5 +1,5 @@
 """
-AI Mouse - Interactive Wiki, Pre-Learn & Live Stats Dashboard
+AI Mouse - Interactive Wiki, Pre-Learn, Hotkeys & Live Stats Dashboard
 Serves a comprehensive real-time Wiki & Dashboard at http://localhost:8765
 Run: .\\.venv\\Scripts\\python dashboard.py
 """
@@ -18,6 +18,7 @@ if str(src_path) not in sys.path:
 
 import ai_mouse as am
 from ai_mouse.navigation.fastpaths import FASTPATHS
+from ai_mouse.core.keyboard import COMMON_HOTKEYS
 
 PORT = 8765
 
@@ -26,7 +27,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Mouse - Live Stats & Roadmap Wiki</title>
+    <title>AI Mouse - Live Stats, Roadmap & Hotkeys Wiki</title>
     <style>
         :root {
             --bg: #0b1120;
@@ -59,7 +60,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
 
         /* NAV TABS */
-        .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; flex-wrap: wrap; }
         .tab-btn { background: transparent; border: none; color: var(--text-muted); font-size: 15px; font-weight: 600; padding: 10px 18px; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
         .tab-btn:hover { color: var(--text); background: var(--card); }
         .tab-btn.active { color: var(--primary); background: var(--card); border: 1px solid var(--card-border); }
@@ -100,19 +101,37 @@ HTML_CONTENT = """<!DOCTYPE html>
         .element-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: rgba(11, 17, 32, 0.5); border: 1px solid rgba(255,255,255,0.03); }
         .element-item:hover { background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.2); }
         .el-info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px; }
-        .el-name { font-size: 13.5px; font-weight: 600; color: #fff; }
+        .el-name { font-size: 13.5px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 6px; }
         .el-type { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
         .el-coords { font-family: monospace; font-size: 12px; color: var(--accent); background: rgba(192, 132, 252, 0.1); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(192, 132, 252, 0.2); }
 
-        /* FASTPATH WIKI TABLE */
-        .fastpath-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; overflow: hidden; margin-bottom: 24px; }
-        .fastpath-table th { background: rgba(255,255,255,0.03); padding: 12px 16px; text-align: left; font-size: 13px; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--card-border); }
-        .fastpath-table td { padding: 12px 16px; border-bottom: 1px solid var(--card-border); font-size: 14px; }
-        .fastpath-table tr:hover td { background: rgba(56,189,248,0.04); }
-        .btn-test-fp { background: var(--btn-bg); color: var(--primary); border: 1px solid var(--card-border); padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-        .btn-test-fp:hover { background: var(--primary); color: #fff; }
+        .kbd-badge {
+            background: linear-gradient(135deg, #0284c7, #2563eb);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            font-family: monospace;
+            display: inline-block;
+        }
 
-        /* NOTIFICATION TOAST */
+        /* TABLES */
+        .wiki-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; overflow: hidden; margin-bottom: 24px; }
+        .wiki-table th { background: rgba(255,255,255,0.03); padding: 12px 16px; text-align: left; font-size: 13px; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--card-border); }
+        .wiki-table td { padding: 12px 16px; border-bottom: 1px solid var(--card-border); font-size: 14px; }
+        .wiki-table tr:hover td { background: rgba(56,189,248,0.04); }
+        
+        .btn-action { background: var(--btn-bg); color: var(--primary); border: 1px solid var(--card-border); padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-action:hover { background: var(--primary); color: #fff; }
+
+        /* INTERACTIVE TEST BOX */
+        .test-box { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .test-input { background: #0b1120; border: 1px solid var(--card-border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 14px; flex: 1; min-width: 240px; outline: none; }
+        .test-input:focus { border-color: var(--primary); }
+
         #toast { position: fixed; bottom: 24px; right: 24px; background: #0284c7; color: white; padding: 12px 20px; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); font-size: 14px; font-weight: 600; display: none; z-index: 1000; }
 
         footer { text-align: center; font-size: 13px; color: var(--text-muted); margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--card-border); }
@@ -123,7 +142,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         <header>
             <div class="header-title">
                 <h1>⚡ AI Mouse & UI Wiki</h1>
-                <p>Rauntíma Vegvísir, Lærdómsbókasafn og Skjáborðsvöktun</p>
+                <p>Rauntíma Vegvísir, Flýtilyklar (Hotkeys) og Skjáborðsvöktun</p>
             </div>
             <div class="header-actions">
                 <button id="btnPrelearn" class="btn-prelearn" onclick="triggerPrelearn()">
@@ -140,6 +159,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('overview')">📊 Yfirlit & Staða</button>
             <button class="tab-btn" onclick="switchTab('wiki')">📖 Roadmap Wiki (Lærð forrit)</button>
+            <button class="tab-btn" onclick="switchTab('hotkeys')">⌨️ Hotkeys Wiki (Flýtilyklar)</button>
             <button class="tab-btn" onclick="switchTab('fastpaths')">⚡ OS Fastpaths Wiki</button>
         </div>
 
@@ -162,9 +182,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <div class="sub">Raunhnit á skjánum</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">OS Fastpaths</div>
-                    <div class="val" id="fastpathsCount">33</div>
-                    <div class="sub">0 ms URI flýtivísanir</div>
+                    <div class="label">Hotkeys & Fastpaths</div>
+                    <div class="val" id="totalShortcutsCount">64</div>
+                    <div class="sub">0.5 ms beinar aðgerðir</div>
                 </div>
             </div>
 
@@ -182,7 +202,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- SUMMARY PREVIEW OF TOP APPS -->
             <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Kortlögð forrit í fljótu bragði:</div>
             <div class="apps-grid" id="overviewAppsGrid"></div>
         </div>
@@ -191,17 +210,42 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div id="tab-wiki" class="tab-content">
             <div class="search-bar-row">
                 <div style="font-size: 16px; font-weight: 700; color: var(--text);">Öll lærð stjórntæki og takkar í kerfinu:</div>
-                <input type="text" id="wikiSearchInput" class="search-box" placeholder="Sía eftir takka, forriti eða tegund..." oninput="filterWiki()">
+                <input type="text" id="wikiSearchInput" class="search-box" placeholder="Sía eftir takka, forriti eða flýtilykli..." oninput="filterWiki()">
             </div>
             <div class="apps-grid" id="wikiAppsGrid"></div>
         </div>
 
-        <!-- TAB 3: FASTPATHS WIKI -->
+        <!-- TAB 3: HOTKEYS WIKI -->
+        <div id="tab-hotkeys" class="tab-content">
+            <div style="font-size: 16px; font-weight: 700; margin-bottom: 8px; color: var(--text);">⌨️ Flýtilyklar (Universal & App Hotkeys - 0.5 ms):</div>
+            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">Þessir flýtilyklar framkvæma aðgerðir samstundis án þess að hreyfa músina. Þú getur prófað hvaða flýtilykil sem er með því að smella á „Prófa / Ýta“.</p>
+
+            <!-- LIVE TEST KEYBOARD PANEL -->
+            <div class="test-box">
+                <strong style="color: var(--primary);">Prófa textainnslátt í virkan glugga:</strong>
+                <input type="text" id="typeTextInput" class="test-input" placeholder="Sláðu inn texta sem á að senda inn...">
+                <button class="btn-action" style="padding: 10px 16px;" onclick="testTypeText()">Senda texta</button>
+            </div>
+
+            <table class="wiki-table">
+                <thead>
+                    <tr>
+                        <th>Aðgerð / Hlutverk</th>
+                        <th>Flýtilykill</th>
+                        <th>Hraði</th>
+                        <th>Aðgerð</th>
+                    </tr>
+                </thead>
+                <tbody id="hotkeysBody"></tbody>
+            </table>
+        </div>
+
+        <!-- TAB 4: FASTPATHS WIKI -->
         <div id="tab-fastpaths" class="tab-content">
             <div style="font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--text);">Windows Direct OS Fastpaths (0 ms Navigation):</div>
             <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">Þessar flýtivísanir gera gervigreindinni kleift að hoppa beint inn í Windows stillingar eða forrit á 0 ms án nokkurra músarsmella.</p>
             
-            <table class="fastpath-table">
+            <table class="wiki-table">
                 <thead>
                     <tr>
                         <th>Skipun / Lykill</th>
@@ -235,16 +279,15 @@ HTML_CONTENT = """<!DOCTYPE html>
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             
-            if (tabId === 'overview') {
-                document.querySelectorAll('.tab-btn')[0].classList.add('active');
-                document.getElementById('tab-overview').classList.add('active');
-            } else if (tabId === 'wiki') {
-                document.querySelectorAll('.tab-btn')[1].classList.add('active');
-                document.getElementById('tab-wiki').classList.add('active');
-            } else if (tabId === 'fastpaths') {
-                document.querySelectorAll('.tab-btn')[2].classList.add('active');
-                document.getElementById('tab-fastpaths').classList.add('active');
-            }
+            const tabMap = {
+                'overview': [0, 'tab-overview'],
+                'wiki': [1, 'tab-wiki'],
+                'hotkeys': [2, 'tab-hotkeys'],
+                'fastpaths': [3, 'tab-fastpaths']
+            };
+            const [idx, id] = tabMap[tabId];
+            document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+            document.getElementById(id).classList.add('active');
         }
 
         async function fetchStats() {
@@ -273,6 +316,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
             renderAppsGrid('overviewAppsGrid', data.roadmap, '', 5);
             renderAppsGrid('wikiAppsGrid', data.roadmap, document.getElementById('wikiSearchInput').value, 999);
+            renderHotkeysTable(data.common_hotkeys || {}, data.roadmap || {});
             renderFastpathsTable(data.fastpaths || {});
         }
 
@@ -287,6 +331,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     if (!q) return true;
                     return appName.toLowerCase().includes(q) || 
                            (el.name && el.name.toLowerCase().includes(q)) ||
+                           (el.shortcut && el.shortcut.toLowerCase().includes(q)) ||
                            (el.control_type && el.control_type.toLowerCase().includes(q));
                 });
 
@@ -313,9 +358,13 @@ HTML_CONTENT = """<!DOCTYPE html>
                     for (const el of itemsToShow) {
                         const item = document.createElement('div');
                         item.className = 'element-item';
+                        const shortcutBadge = el.shortcut ? `<span class="kbd-badge">${el.shortcut}</span>` : '';
                         item.innerHTML = `
                             <div class="el-info">
-                                <div class="el-name" title="${el.name}">${el.name}</div>
+                                <div class="el-name" title="${el.name}">
+                                    <span>${el.name}</span>
+                                    ${shortcutBadge}
+                                </div>
                                 <div class="el-type">${el.control_type}</div>
                             </div>
                             <div class="el-coords">rel: (${el.rel_x}, ${el.rel_y})</div>
@@ -343,9 +392,29 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
         }
 
+        function renderHotkeysTable(commonHotkeys, roadmap) {
+            const tbody = document.getElementById('hotkeysBody');
+            if (tbody.children.length > 0) return; // Only populate once
+            tbody.innerHTML = '';
+
+            // 1. Universal hotkeys
+            for (const [action, key] of Object.entries(commonHotkeys)) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${action}</strong></td>
+                    <td><kbd class="kbd-badge">${key.toUpperCase()}</kbd></td>
+                    <td><span style="color: var(--success); font-weight: 600;">0.5 ms</span></td>
+                    <td>
+                        <button class="btn-action" onclick="triggerHotkey('${key}')">Prófa / Ýta</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
         function renderFastpathsTable(fastpaths) {
             const tbody = document.getElementById('fastpathsBody');
-            if (tbody.children.length > 0) return; // Only populate once
+            if (tbody.children.length > 0) return;
             tbody.innerHTML = '';
 
             for (const [key, uri] of Object.entries(fastpaths)) {
@@ -355,21 +424,49 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <td><code style="color: var(--primary); font-family: monospace;">${uri}</code></td>
                     <td style="color: var(--text-muted);">Opnar beint ${key} stillingar / forrit</td>
                     <td>
-                        <button class="btn-test-fp" onclick="launchFastpath('${key}')">Prófa / Opna</button>
+                        <button class="btn-action" onclick="launchFastpath('${key}')">Prófa / Opna</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
             }
         }
 
+        async function triggerHotkey(hotkey) {
+            try {
+                const res = await fetch('/api/hotkey', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hotkey: hotkey })
+                });
+                showToast(`Sendi flýtilykil: ${hotkey.toUpperCase()}`);
+            } catch (e) {
+                alert("Villa: " + e);
+            }
+        }
+
+        async function testTypeText() {
+            const val = document.getElementById('typeTextInput').value;
+            if (!val) return;
+            try {
+                await fetch('/api/type', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: val, enter: true })
+                });
+                showToast(`Skrifaði texta inn í virkan glugga: ${val}`);
+                document.getElementById('typeTextInput').value = '';
+            } catch (e) {
+                alert("Villa: " + e);
+            }
+        }
+
         async function launchFastpath(target) {
             try {
-                const res = await fetch('/api/fastpath', {
+                await fetch('/api/fastpath', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ target: target })
                 });
-                const data = await res.json();
                 showToast(`Opnaði flýtivísun: ${target}`);
             } catch (e) {
                 alert("Villa við að opna flýtivísun: " + e);
@@ -395,7 +492,6 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
         }
 
-        // Live polling
         fetchStats();
         setInterval(fetchStats, 1500);
     </script>
@@ -437,6 +533,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "active_window": active_win,
                 "total_apps": len(roadmap_data),
                 "total_elements": total_elements,
+                "common_hotkeys": COMMON_HOTKEYS,
                 "fastpaths": FASTPATHS,
                 "roadmap": roadmap_data,
                 "timestamp": datetime.now().isoformat(),
@@ -461,9 +558,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
-            # Execute system pre-learn
             res = am.run_system_prelearn()
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/hotkey":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            hk = req_data.get("hotkey", "")
+            if hk:
+                am.press_hotkey(hk)
+            self.wfile.write(json.dumps({"success": True, "hotkey": hk}).encode("utf-8"))
+
+        elif clean_path == "/api/type":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            text = req_data.get("text", "")
+            enter = req_data.get("enter", False)
+            if text:
+                am.type_text(text, enter=enter)
+            self.wfile.write(json.dumps({"success": True, "typed": text}).encode("utf-8"))
 
         elif clean_path == "/api/fastpath":
             self.send_response(200)
