@@ -620,10 +620,8 @@ HTML_CONTENT = """<!DOCTYPE html>
         </div>
 
         <div class="wiki-header-actions">
-            <button class="btn-wiki" onclick="fetchStats()">🔄 Refresh</button>
-            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive()" title="Exhaustive deep dive: learn every menu, button, and shortcut in the target app">🔬 Deep Dive</button>
-            <button id="btnAutoRecord" class="btn-wiki" onclick="triggerAutoMoveRecord()" title="Automatically move mouse over window controls and record into Wikipedia">🎯 Auto-Tour</button>
-            <button id="btnRecordCursor" class="btn-wiki" onclick="triggerRecordCursor()" title="Move mouse over any button to record into Wikipedia">🎯 Hover Record</button>
+            <button class="btn-wiki" onclick="fetchStats()" title="Reload cached statistics">🔄 Refresh</button>
+            <button id="btnSystemScan" class="btn-wiki btn-wiki-primary" onclick="triggerSystemScan()" title="Scan all open Windows applications and index their controls">⚡ System Scan</button>
             <button id="btnLog" class="btn-wiki" onclick="navigateTo('history')" title="View recent scan and recording activity log">📜 Scan Log</button>
         </div>
     </header>
@@ -654,7 +652,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 <div class="sidebar-title">Community & Tools</div>
                 <ul class="sidebar-menu">
                     <li><a class="sidebar-item" href="https://github.com/robertbeck-stack/deskdriver" target="_blank"><span>📦 GitHub Repo</span></a></li>
-                    <li><a class="sidebar-item" onclick="triggerPrelearn()"><span>⚡ Deep Scan (Pre-Learn)</span></a></li>
+                    <li><a class="sidebar-item" onclick="triggerSystemScan()"><span>⚡ System Scan</span></a></li>
                 </ul>
             </div>
         </aside>
@@ -910,8 +908,16 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <div class="article-header">
-                    <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)}</h1>
-                    <div class="article-tagline">From DeskDriver Wiki, the free encyclopedia</div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;">
+                        <div>
+                            <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)}</h1>
+                            <div class="article-tagline">From DeskDriver Wiki, the free encyclopedia</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 6px;">
+                            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive('${appKey}')" title="Exhaustive deep dive: learn every menu, button, and shortcut in ${appKey}">🔬 Deep Dive</button>
+                            <button id="btnAutoRecord" class="btn-wiki" onclick="triggerAutoMoveRecord('${appKey}')" title="Automatically move mouse over ${appKey} controls and record into Wikipedia">🎯 Auto-Tour</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="hatnote">
@@ -1182,60 +1188,19 @@ HTML_CONTENT = """<!DOCTYPE html>
             `;
         }
 
-        async function triggerRecordCursor() {
-            const btn = document.getElementById('btnRecordCursor');
-            if (btn) btn.disabled = true;
-            showToast("🎯 Move mouse over any UI button (capturing in 3 seconds)...", 3500);
-            let left = 3;
-            const timer = setInterval(() => {
-                left--;
-                if (btn) btn.innerText = `🎯 Capturing (${left}s)...`;
-                if (left <= 0) {
-                    clearInterval(timer);
-                    doCapture();
-                }
-            }, 1000);
-
-            async function doCapture() {
-                try {
-                    const res = await fetch('/api/record_cursor', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({})
-                    });
-                    const data = await res.json();
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerText = '🎯 Hover Record';
-                    }
-                    if (data.status === 'element_recorded') {
-                        showToast(`✅ Captured "${data.element}" for ${data.app}!`);
-                        await fetchStats();
-                    } else {
-                        showToast(`Capture failed: ${data.error || 'Unknown'}`);
-                    }
-                } catch (e) {
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerText = '🎯 Hover Record';
-                    }
-                    showToast('Capture error: ' + e);
-                }
-            }
-        }
-
         async function triggerAutoMoveRecord(appKey) {
             const btn = document.getElementById('btnAutoRecord');
+            let target = appKey || currentApp || '';
             if (btn) {
                 btn.disabled = true;
                 btn.innerText = '🎯 Moving Mouse & Scanning...';
             }
-            showToast('Starting automated cursor tour: DeskDriver is physically moving the mouse over controls...', 5000);
+            showToast(`Starting automated cursor tour for '${target || 'window'}': DeskDriver is physically moving the mouse over controls...`, 5000);
             try {
                 const res = await fetch('/api/auto_record', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window: appKey || currentApp || '' })
+                    body: JSON.stringify({ window: target })
                 });
                 const data = await res.json();
                 if (data.status === 'auto_recorded') {
@@ -1257,7 +1222,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         async function triggerDeepDive(appKey) {
             const btn = document.getElementById('btnDeepDive');
-            let target = appKey || (currentView === 'app' ? currentApp : '');
+            let target = appKey || currentApp || '';
             if (!target) {
                 target = prompt('Enter application name or window title to Deep Dive (e.g. Notepad, Brave, Explorer):');
                 if (!target) return;
@@ -1384,25 +1349,25 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
         }
 
-        async function triggerPrelearn() {
-            const btn = document.getElementById('btnPrelearn');
+        async function triggerSystemScan() {
+            const btn = document.getElementById('btnSystemScan');
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '⏳ Scanning...';
+                btn.innerText = '⏳ Scanning System...';
             }
-            showToast('Started System Pre-Learn scan...');
+            showToast('⚡ Running Full System Scan across all open windows...', 5000);
 
             try {
                 const res = await fetch('/api/prelearn', { method: 'POST' });
                 const data = await res.json();
-                showToast(`Pre-Learn complete! Found ${data.total_new_elements} controls across ${data.scanned_apps.length} apps.`);
+                showToast(`✅ System Scan complete! Indexed ${data.total_new_elements} controls across ${data.scanned_apps.length} apps.`, 8000);
                 await fetchStats();
             } catch (e) {
-                alert("Error: " + e);
+                showToast('System Scan error: ' + e);
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = '🚀 Run Pre-Learn';
+                    btn.innerText = '⚡ System Scan';
                 }
             }
         }
