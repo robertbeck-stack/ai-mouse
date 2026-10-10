@@ -156,9 +156,11 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
                     name = get_element_name(child)
                     cx = (rect.left + rect.right) // 2
                     cy = (rect.top + rect.bottom) // 2
+                    sc = getattr(child, "AcceleratorKey", "") or getattr(child, "AccessKey", "")
                     elements.append({
                         "name": name,
                         "control_type": child.ControlTypeName,
+                        "shortcut": sc.strip() if sc else "",
                         "center_x": cx,
                         "center_y": cy,
                         "rect": {

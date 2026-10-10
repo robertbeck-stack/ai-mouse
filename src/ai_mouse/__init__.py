@@ -8,7 +8,9 @@ from ai_mouse.core.mouse import (
     mouse_click,
     move_and_click,
 )
+from ai_mouse.core.keyboard import press_hotkey, type_text, COMMON_HOTKEYS
 from ai_mouse.automation.windows import list_windows, focus_window
+
 from ai_mouse.automation.uia import (
     get_element_under_cursor,
     get_element_at,
@@ -25,8 +27,12 @@ __all__ = [
     "move_mouse",
     "mouse_click",
     "move_and_click",
+    "press_hotkey",
+    "type_text",
+    "COMMON_HOTKEYS",
     "list_windows",
     "focus_window",
+
     "get_element_under_cursor",
     "get_element_at",
     "list_clickable_elements",

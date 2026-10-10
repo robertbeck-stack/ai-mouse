@@ -77,8 +77,11 @@ Eða keyrðu einingaprófin:
 
 | Verkfæri | Lýsing |
 | :--- | :--- |
-| `fast_click(element_name, window_search, instant=True)` | **Hraðvirkasti smellurinn:** Finnur takka úr lærðu Roadmap minni á $< 1$ ms. Lærir sjálfkrafa nýja takka. |
+| `fast_click(element_name, window_search, instant=True)` | **Sjálfvirk flýtirás:** Ef takki hefur flýtilykil (`Ctrl+S`, `Ctrl+T`) notar hann hann á **0.5 ms**. Annars smellir hann á hnit úr Roadmap á $< 1$ ms. |
+| `press_hotkey(hotkey)` | **Flýtilykill (0.5 ms):** Sendir lyklaborðssamsetningu (t.d. `ctrl+s`, `win+shift+s`, `ctrl+t`, `alt+f4`, `enter`). |
+| `type_text(text, enter=False)` | **Slá inn texta:** Sendir Unicode texta beint inn í virkan reit (t.d. leitarstiku eða textaskjal). |
 | `open_fastpath(target)` | **Bein flýtivísun í OS (0 ms):** Opnar stillingar samstundis (t.d. `system`, `display`, `sound`, `bluetooth`, `wifi`, `calculator`). |
+| `system_prelearn(max_elements_per_app=150)` | **Djúpskönnun:** Skannar öll opin forrit og verkstikuna og kennir Roadmap-inu alla takka fyrirfram. |
 | `get_roadmap_stats()` | Sýnir lista yfir forrit og takka sem þjónninn hefur kortlagt í minni. |
 | `get_mouse_position()` | Skilar núverandi `(x, y)` hnitum músarinnar á skjánum. |
 | `move_mouse(x, y, smooth=True, duration=0.25)` | Hreyfir músina á mjúkan, mannlegan hátt með Bézier-kúrfulíkani. |
@@ -89,6 +92,7 @@ Eða keyrðu einingaprófin:
 | `list_windows()` | Skilar lista yfir alla sýnilega glugga (heiti, stærð og staðsetning). |
 | `focus_window(title_or_hwnd)` | Setur tiltekinn glugga í forgrunn. |
 | `list_clickable_elements(window_search="", max_elements=40)` | Finnur alla smellanlega hnappa og tengla í virka glugganum með miðjuhnitum. |
+
 
 ---
 

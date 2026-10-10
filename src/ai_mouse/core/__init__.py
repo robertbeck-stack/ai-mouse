@@ -5,6 +5,7 @@ from ai_mouse.core.mouse import (
     mouse_click,
     move_and_click,
 )
+from ai_mouse.core.keyboard import press_hotkey, type_text, COMMON_HOTKEYS
 
 __all__ = [
     "ensure_desktop",
@@ -14,4 +15,8 @@ __all__ = [
     "move_mouse",
     "mouse_click",
     "move_and_click",
+    "press_hotkey",
+    "type_text",
+    "COMMON_HOTKEYS",
 ]
+

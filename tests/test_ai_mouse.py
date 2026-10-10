@@ -42,12 +42,24 @@ def test_roadmap_lookup():
     print(f" -> Cached apps in roadmap: {len(stats)}")
 
 
+def test_keyboard_support():
+    print("Testing keyboard hotkey definitions...")
+    from ai_mouse.core.keyboard import _get_vk_code, COMMON_HOTKEYS
+    assert _get_vk_code("ctrl") == 0x11
+    assert _get_vk_code("enter") == 0x0D
+    assert "save" in COMMON_HOTKEYS
+    assert COMMON_HOTKEYS["save"] == "ctrl+s"
+    print(f" -> Universal hotkeys registered: {len(COMMON_HOTKEYS)}")
+
+
 def run_all():
     test_core_mouse()
     test_window_enumeration()
     test_element_inspection()
     test_roadmap_lookup()
+    test_keyboard_support()
     print("\nALL MODULAR TESTS PASSED!")
+
 
 
 if __name__ == "__main__":

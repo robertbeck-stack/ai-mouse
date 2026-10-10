@@ -69,6 +69,7 @@ class UIRoadmap:
             self.map[app_key]["elements"][name] = {
                 "name": el["name"],
                 "control_type": el["control_type"],
+                "shortcut": el.get("shortcut", ""),
                 "rel_x": rel_x,
                 "rel_y": rel_y,
                 "width": el.get("rect", {}).get("width", 0),
@@ -101,6 +102,7 @@ class UIRoadmap:
             return {
                 "name": matched["name"],
                 "control_type": matched["control_type"],
+                "shortcut": matched.get("shortcut", ""),
                 "center_x": abs_x,
                 "center_y": abs_y,
                 "source": "roadmap_cache",
@@ -114,17 +116,33 @@ roadmap = UIRoadmap()
 def fast_click_element(element_name: str, window_search: str = "", instant: bool = True) -> dict:
     """
     High-speed click on an element by name.
-    Uses Roadmap Cache to resolve coordinates in < 1ms if learned previously.
-    Automatically falls back to scanning and learning on cache miss.
+    1. Checks OS Fastpaths (0 ms).
+    2. Checks Universal Hotkeys & Cached Accelerators (0.5 ms).
+    3. Resolves coordinates via Roadmap Cache (< 1 ms).
+    4. Automatically falls back to scanning and learning on cache miss.
     """
     ensure_desktop()
+    from ai_mouse.core.keyboard import press_hotkey, COMMON_HOTKEYS
 
-    # 1. Check if target matches OS Fastpath
     target_clean = element_name.lower().strip()
+
+    # 1. Check OS Fastpaths
     if execute_fastpath(target_clean):
         return {"status": "fastpath_executed", "target": element_name}
 
-    # 2. Find target window
+    # 2. Check Universal Hotkey shortcuts
+    if target_clean in COMMON_HOTKEYS:
+        hk = COMMON_HOTKEYS[target_clean]
+        if window_search:
+            wins = list_windows()
+            for w in wins:
+                if window_search.lower() in w["title"].lower():
+                    focus_window(w["hwnd"])
+                    break
+        press_hotkey(hk)
+        return {"status": "universal_hotkey_executed", "action": element_name, "hotkey": hk}
+
+    # 3. Find target window
     wins = list_windows()
     target_win = None
     if window_search:
@@ -141,9 +159,14 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
 
     focus_window(target_win["hwnd"])
 
-    # 3. Check Roadmap Cache
+    # 4. Check Roadmap Cache
     cached = roadmap.find_cached_element(target_win["title"], element_name, target_win["rect"])
     if cached:
+        # If element has a known accelerator shortcut, use it for 10x speedup
+        if cached.get("shortcut"):
+            press_hotkey(cached["shortcut"])
+            return {"status": "accelerator_hotkey_executed", "name": cached["name"], "shortcut": cached["shortcut"]}
+
         cx = cached["center_x"]
         cy = cached["center_y"]
         if instant:
@@ -152,6 +175,7 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
         else:
             move_and_click(cx, cy, smooth=True, duration=0.15)
         return {"status": "clicked_from_roadmap", "name": cached["name"], "x": cx, "y": cy, "source": "cache"}
+
 
     # 4. Cache miss: Scan, learn, and click
     from ai_mouse.automation.uia import list_clickable_elements

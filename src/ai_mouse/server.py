@@ -49,6 +49,27 @@ def move_and_click(
 
 
 @server.tool()
+def press_hotkey(hotkey: str) -> dict:
+    """
+    Press and release a keyboard combination (e.g. 'ctrl+s', 'win+shift+s', 'ctrl+t', 'enter').
+    Executes in 0.5 ms for maximum speed.
+    """
+    am.press_hotkey(hotkey)
+    return {"status": "hotkey_executed", "hotkey": hotkey}
+
+
+@server.tool()
+def type_text(text: str, enter: bool = False) -> dict:
+    """
+    Type Unicode text directly into the focused input or window.
+    Set enter=True to submit by pressing Enter after typing.
+    """
+    am.type_text(text, enter=enter)
+    return {"status": "typed", "length": len(text), "enter_pressed": enter}
+
+
+
+@server.tool()
 def inspect_under_cursor() -> dict:
     """
     Inspect the exact UI element currently under the mouse cursor.
