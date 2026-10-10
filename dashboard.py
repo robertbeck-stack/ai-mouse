@@ -510,19 +510,96 @@ HTML_CONTENT = """<!DOCTYPE html>
             line-height: 1.4;
         }
 
+        .last-scan-banner {
+            background: #f8f9fa;
+            border-left: 4px solid #3366cc;
+            border-top: 1px solid #c8ccd1;
+            border-right: 1px solid #c8ccd1;
+            border-bottom: 1px solid #c8ccd1;
+            padding: 8px 14px;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #202122;
+            gap: 12px;
+        }
+        .scan-badge {
+            display: inline-block;
+            padding: 1px 7px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 2px;
+            background: #eaecf0;
+            color: #202122;
+            border: 1px solid #a2a9b1;
+            margin: 0 4px;
+        }
+        .scan-badge-deepdive {
+            background: #eaf3ff;
+            color: #3366cc;
+            border-color: #a3c7ff;
+        }
+        .scan-badge-autotour {
+            background: #e6f9f0;
+            color: #14866d;
+            border-color: #8be0bf;
+        }
+        .scan-badge-hoverrecord {
+            background: #fdf2e9;
+            color: #b75500;
+            border-color: #f5b977;
+        }
+        .scan-badge-systemprelearn {
+            background: #f3e8fd;
+            color: #6929c4;
+            border-color: #d4bbff;
+        }
+        .item-chip {
+            background: #f8f9fa;
+            border: 1px solid #c8ccd1;
+            padding: 1px 6px;
+            border-radius: 2px;
+            font-size: 11.5px;
+            display: inline-block;
+            margin: 2px 3px 2px 0;
+            color: #202122;
+        }
+
         #toast {
             position: fixed;
             bottom: 24px;
             right: 24px;
             background: #202122;
             color: white;
-            padding: 10px 18px;
-            border-radius: 2px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            padding: 12px 18px;
+            border-radius: 3px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
             font-size: 13px;
             font-weight: 500;
             display: none;
             z-index: 1000;
+            max-width: 440px;
+            line-height: 1.4;
+        }
+        #toast a {
+            color: #6bb9f0;
+            text-decoration: underline;
+            margin-left: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #toast .toast-close {
+            float: right;
+            margin-left: 12px;
+            cursor: pointer;
+            color: #a2a9b1;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        #toast .toast-close:hover {
+            color: #ffffff;
         }
     </style>
 </head>
@@ -544,10 +621,10 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         <div class="wiki-header-actions">
             <button class="btn-wiki" onclick="fetchStats()">🔄 Refresh</button>
-            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive()" title="Exhaustive deep dive: learn every menu, button, and shortcut">🔬 Total Deep Dive</button>
-            <button id="btnAutoRecord" class="btn-wiki" onclick="triggerAutoMoveRecord()" title="Automatically move mouse over window controls and record into Wikipedia">🎯 Auto-Move & Record</button>
-            <button id="btnRecordCursor" class="btn-wiki" onclick="triggerRecordCursor()" title="Move mouse over any button to record into Wikipedia">🎯 Record Hover</button>
-            <button id="btnPrelearn" class="btn-wiki" onclick="triggerPrelearn()">⚡ Full System Scan</button>
+            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive()" title="Exhaustive deep dive: learn every menu, button, and shortcut in the target app">🔬 Deep Dive</button>
+            <button id="btnAutoRecord" class="btn-wiki" onclick="triggerAutoMoveRecord()" title="Automatically move mouse over window controls and record into Wikipedia">🎯 Auto-Tour</button>
+            <button id="btnRecordCursor" class="btn-wiki" onclick="triggerRecordCursor()" title="Move mouse over any button to record into Wikipedia">🎯 Hover Record</button>
+            <button id="btnLog" class="btn-wiki" onclick="navigateTo('history')" title="View recent scan and recording activity log">📜 Scan Log</button>
         </div>
     </header>
 
@@ -559,6 +636,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 <div class="sidebar-title">Navigation</div>
                 <ul class="sidebar-menu">
                     <li><a class="sidebar-item active" id="menu-main" onclick="navigateTo('main')"><span>🏠 Main Page</span></a></li>
+                    <li><a class="sidebar-item" id="menu-history" onclick="navigateTo('history')"><span>📜 Scan History</span> <span class="sidebar-badge" id="sideBadgeScans">0</span></a></li>
                     <li><a class="sidebar-item" id="menu-hotkeys" onclick="navigateTo('hotkeys')"><span>⌨️ Universal Hotkeys</span> <span class="sidebar-badge" id="sideBadgeHotkeys">31</span></a></li>
                     <li><a class="sidebar-item" id="menu-fastpaths" onclick="navigateTo('fastpaths')"><span>⚡ OS Fastpaths</span> <span class="sidebar-badge" id="sideBadgeFastpaths">33</span></a></li>
                     <li><a class="sidebar-item" id="menu-tester" onclick="navigateTo('tester')"><span>🧪 Controls & Tester</span></a></li>
@@ -594,11 +672,18 @@ HTML_CONTENT = """<!DOCTYPE html>
         let currentView = 'main';
         let currentApp = null;
 
-        function showToast(msg) {
+        let toastTimer = null;
+        function showToast(msg, duration = 8000) {
             const t = document.getElementById('toast');
-            t.innerText = msg;
+            if (!t) return;
+            if (toastTimer) clearTimeout(toastTimer);
+            t.innerHTML = `
+                <span class="toast-close" onclick="document.getElementById('toast').style.display='none'">&times;</span>
+                <div style="display: inline-block;">${msg}</div>
+                <a onclick="navigateTo('history'); document.getElementById('toast').style.display='none';">[View Log]</a>
+            `;
             t.style.display = 'block';
-            setTimeout(() => { t.style.display = 'none'; }, 3200);
+            toastTimer = setTimeout(() => { t.style.display = 'none'; }, duration);
         }
 
         async function fetchStats() {
@@ -620,6 +705,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             // Update active menu state
             document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
             if (view === 'main') document.getElementById('menu-main')?.classList.add('active');
+            else if (view === 'history') document.getElementById('menu-history')?.classList.add('active');
             else if (view === 'hotkeys') document.getElementById('menu-hotkeys')?.classList.add('active');
             else if (view === 'fastpaths') document.getElementById('menu-fastpaths')?.classList.add('active');
             else if (view === 'tester') document.getElementById('menu-tester')?.classList.add('active');
@@ -651,10 +737,29 @@ HTML_CONTENT = """<!DOCTYPE html>
 
             const hkCount = Object.keys(data.common_hotkeys || {}).length;
             const fpCount = Object.keys(data.fastpaths || {}).length;
+            const scanCount = data.total_scans || 0;
             const badgeHk = document.getElementById('sideBadgeHotkeys');
             const badgeFp = document.getElementById('sideBadgeFastpaths');
+            const badgeScans = document.getElementById('sideBadgeScans');
             if (badgeHk) badgeHk.innerText = hkCount;
             if (badgeFp) badgeFp.innerText = fpCount;
+            if (badgeScans) badgeScans.innerText = scanCount;
+        }
+
+        function getLastScanBannerHtml(data) {
+            const lastScan = data?.last_scan;
+            if (!lastScan) return '';
+            const badgeClass = 'scan-badge-' + (lastScan.action || '').toLowerCase().replace(/[^a-z]/g, '');
+            return `
+                <div class="last-scan-banner">
+                    <div>
+                        🕒 <strong>Last Scanned:</strong> 
+                        <span class="scan-badge ${badgeClass}">${lastScan.action}</span>
+                        <strong>${lastScan.app}</strong> at ${lastScan.time_str || lastScan.timestamp} &mdash; ${lastScan.summary}
+                    </div>
+                    <button class="btn-wiki" style="font-size: 11px; padding: 2px 8px; white-space: nowrap;" onclick="navigateTo('history')">View Scan Log &rarr;</button>
+                </div>
+            `;
         }
 
         function renderCurrentView() {
@@ -662,6 +767,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             const container = document.getElementById('wikiArticle');
 
             if (currentView === 'main') renderMainPage(container);
+            else if (currentView === 'history') renderHistoryPage(container);
             else if (currentView === 'app') renderAppPage(container, currentApp);
             else if (currentView === 'hotkeys') renderHotkeysPage(container);
             else if (currentView === 'fastpaths') renderFastpathsPage(container);
@@ -702,6 +808,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <div class="stat-item"><div class="stat-val">${fpCount}</div><div class="stat-lbl">Fastpaths</div></div>
                     </div>
                 </div>
+
+                ${getLastScanBannerHtml(data)}
 
                 <div class="hatnote">
                     DeskDriver provides sub-millisecond cursor execution, atomic SendInput typing, and persistent O(1) spatial indexing.
@@ -782,11 +890,11 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </div>
                     <div class="tabs-right">
                         <span class="article-tab active">Read</span>
-                        <span class="article-tab" onclick="triggerDeepDive('${appKey}')" title="Exhaustive deep dive: learn every menu, button, and shortcut in this app">🔬 Total Deep Dive</span>
-                        <span class="article-tab" onclick="triggerAutoMoveRecord('${appKey}')" title="Automatically move mouse over this app and record">🎯 Auto-Scan & Move</span>
-                        <span class="article-tab" onclick="fetchStats()">View history</span>
+                        <span class="article-tab" onclick="navigateTo('history')">View history</span>
                     </div>
                 </div>
+
+                ${getLastScanBannerHtml(fullData)}
 
                 <!-- WIKIPEDIA INFOBOX -->
                 <div class="infobox">
@@ -799,9 +907,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <tr><th>Positioning</th><td>Relative + Anchors</td></tr>
                         <tr><th>Cache Storage</th><td><code>ui_roadmap.json</code></td></tr>
                     </table>
-                    <div style="padding: 8px 4px 4px 4px;">
-                        <button class="btn-wiki btn-wiki-primary" style="width: 100%; justify-content: center; font-size: 12px;" onclick="triggerDeepDive('${appKey}')">🔬 Total Deep Dive</button>
-                    </div>
                 </div>
 
                 <div class="article-header">
@@ -822,12 +927,12 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </ul>
                 </div>
 
-                <h2 class="wiki-h2" id="sec-overview">1 Overview <a href="#" class="edit-link" onclick="triggerAutoMoveRecord('${appKey}'); return false;">[ auto-scan & move ]</a></h2>
+                <h2 class="wiki-h2" id="sec-overview">1 Overview</h2>
                 <p>
                     <strong>${appKey}</strong> has been indexed into the DeskDriver roadmap cache. AI agents can resolve coordinates for this application in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
                 </p>
 
-                <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators <span class="edit-link">[ edit ]</span></h2>
+                <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators</h2>
                 <p style="color: var(--text-muted); margin-bottom: 12px;">Mapped hotkeys allow instant 0.5 ms actions without cursor movement:</p>
                 <table class="wikitable">
                     <thead>
@@ -849,6 +954,111 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </tbody>
                 </table>
             `;
+        }
+
+        /* 3. SCAN & REVISION HISTORY PAGE */
+        async function renderHistoryPage(container) {
+            container.innerHTML = `
+                <div class="article-tabs-bar">
+                    <div class="tabs-left">
+                        <span class="article-tab" onclick="navigateTo('main')">Article</span>
+                        <span class="article-tab">Talk</span>
+                    </div>
+                    <div class="tabs-right">
+                        <span class="article-tab" onclick="navigateTo('main')">Read</span>
+                        <span class="article-tab active">View history</span>
+                    </div>
+                </div>
+
+                <div class="article-header">
+                    <h1 class="article-title">Scan & Revision History</h1>
+                    <div class="article-tagline">From DeskDriver Wiki, the free desktop automation encyclopedia</div>
+                </div>
+
+                <div class="hatnote">
+                    Chronological record of automated spatial tours, deep dives, and cursor captures recorded into <code>ui_roadmap.json</code>.
+                </div>
+
+                <div id="historyTableContainer">
+                    <p style="color: var(--text-muted); padding: 12px 0;">Loading activity log...</p>
+                </div>
+            `;
+
+            try {
+                const res = await fetch('/api/logs');
+                const data = await res.json();
+                const logs = data.logs || [];
+                const tableContainer = document.getElementById('historyTableContainer');
+                if (!tableContainer) return;
+
+                if (logs.length === 0) {
+                    tableContainer.innerHTML = `
+                        <div style="background: var(--surface); border: 1px solid var(--border); padding: 32px; text-align: center; margin-top: 16px;">
+                            <div style="font-size: 32px; margin-bottom: 8px;">📜</div>
+                            <h3 style="font-family: var(--serif); font-size: 19px; margin-bottom: 8px;">No Scans Performed Yet</h3>
+                            <p style="color: var(--text-muted); font-size: 13px; max-width: 480px; margin: 0 auto 16px auto;">
+                                Click <strong>🔬 Deep Dive</strong> or <strong>🎯 Auto-Tour</strong> in the top header bar to index any open Windows application. Discovered controls and keyboard accelerators will be permanently recorded here.
+                            </p>
+                            <button class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive()">🔬 Start Deep Dive</button>
+                            <button class="btn-wiki" onclick="triggerAutoMoveRecord()" style="margin-left: 8px;">🎯 Start Auto-Tour</button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let rows = '';
+                for (const log of logs) {
+                    const badgeClass = 'scan-badge-' + (log.action || '').toLowerCase().replace(/[^a-z]/g, '');
+                    const appKey = (log.app || '').toLowerCase();
+                    const appLink = log.app ? `<a onclick="navigateTo('app', '${appKey}')" style="color: var(--primary); font-weight: bold; cursor: pointer;">${log.app}</a>` : '<span style="color: var(--text-muted);">(System)</span>';
+                    const itemsList = (log.items && log.items.length > 0)
+                        ? `<div style="margin-top: 6px;">${log.items.slice(0, 12).map(i => `<span class="item-chip">${i}</span>`).join('')}${log.items.length > 12 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.items.length - 12} more</span>` : ''}</div>`
+                        : '';
+
+                    rows += `
+                        <tr>
+                            <td style="white-space: nowrap; font-size: 12px; color: var(--text-muted); vertical-align: top;">
+                                <strong>${log.time_str || ''}</strong><br>
+                                <span style="font-size: 11px;">${log.timestamp?.split(' ')[0] || ''}</span>
+                            </td>
+                            <td style="vertical-align: top;"><span class="scan-badge ${badgeClass}">${log.action}</span></td>
+                            <td style="vertical-align: top;">${appLink}</td>
+                            <td style="vertical-align: top;">
+                                <div><strong>${log.summary}</strong> ${log.duration ? `<small style="color: var(--text-muted);">(${log.duration})</small>` : ''}</div>
+                                ${itemsList}
+                            </td>
+                            <td style="text-align: right; white-space: nowrap; vertical-align: top;">
+                                <button class="btn-wiki" style="font-size: 11.5px; padding: 3px 8px;" onclick="navigateTo('app', '${appKey}')">Open Article &rarr;</button>
+                            </td>
+                        </tr>
+                    `;
+                }
+
+                tableContainer.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <p style="font-size: 13px; color: var(--text-muted);">
+                            Showing <strong>${logs.length}</strong> recorded scan entries (most recent first).
+                        </p>
+                        <button class="btn-wiki" onclick="renderHistoryPage(document.getElementById('wikiArticle'))">🔄 Refresh Log</button>
+                    </div>
+                    <table class="wikitable">
+                        <thead>
+                            <tr>
+                                <th style="width: 130px;">Time / Date</th>
+                                <th style="width: 130px;">Action</th>
+                                <th style="width: 140px;">Application</th>
+                                <th>Scan Summary & Discovered Controls</th>
+                                <th style="width: 110px; text-align: right;">Roadmap</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
+                `;
+            } catch (e) {
+                console.error("Error loading logs:", e);
+            }
         }
 
         /* 3. UNIVERSAL HOTKEYS ARTICLE */
@@ -996,18 +1206,18 @@ HTML_CONTENT = """<!DOCTYPE html>
                     const data = await res.json();
                     if (btn) {
                         btn.disabled = false;
-                        btn.innerText = '🎯 Record Hover';
+                        btn.innerText = '🎯 Hover Record';
                     }
                     if (data.status === 'element_recorded') {
                         showToast(`✅ Captured "${data.element}" for ${data.app}!`);
-                        fetchStats();
+                        await fetchStats();
                     } else {
                         showToast(`Capture failed: ${data.error || 'Unknown'}`);
                     }
                 } catch (e) {
                     if (btn) {
                         btn.disabled = false;
-                        btn.innerText = '🎯 Record Hover';
+                        btn.innerText = '🎯 Hover Record';
                     }
                     showToast('Capture error: ' + e);
                 }
@@ -1020,7 +1230,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 btn.disabled = true;
                 btn.innerText = '🎯 Moving Mouse & Scanning...';
             }
-            showToast('Starting automated cursor tour: DeskDriver is physically moving the mouse over controls...', 4000);
+            showToast('Starting automated cursor tour: DeskDriver is physically moving the mouse over controls...', 5000);
             try {
                 const res = await fetch('/api/auto_record', {
                     method: 'POST',
@@ -1030,7 +1240,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 const data = await res.json();
                 if (data.status === 'auto_recorded') {
                     showToast(`✅ Auto-tour complete! Moved cursor and recorded ${data.count} controls for ${data.app}!`);
-                    fetchStats();
+                    await fetchStats();
                     if (data.app) navigateTo('app', data.app);
                 } else {
                     showToast('Scan error: ' + (data.error || 'Unknown error'));
@@ -1040,7 +1250,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = '🎯 Auto-Move & Record';
+                    btn.innerText = '🎯 Auto-Tour';
                 }
             }
         }
@@ -1057,7 +1267,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 btn.disabled = true;
                 btn.innerText = '🔬 Deep Diving...';
             }
-            showToast(`🔬 Exhaustive Deep Dive initiated for '${target}': Learning every menu, button, and shortcut...`, 5000);
+            showToast(`🔬 Exhaustive Deep Dive initiated for '${target}': Learning every menu, button, and shortcut...`, 6000);
 
             try {
                 const res = await fetch('/api/deepdive', {
@@ -1067,7 +1277,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 });
                 const data = await res.json();
                 if (data.status === 'deep_dive_complete') {
-                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts for ${data.app}!`, 5000);
+                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts for ${data.app}!`, 8000);
                     await fetchStats();
                     if (data.app) navigateTo('app', data.app);
                 } else {
@@ -1078,7 +1288,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = '🔬 Total Deep Dive';
+                    btn.innerText = '🔬 Deep Dive';
                 }
             }
         }
@@ -1204,6 +1414,60 @@ HTML_CONTENT = """<!DOCTYPE html>
 """
 
 
+LOG_FILE = Path(__file__).parent / "scan_history.json"
+
+
+def load_scan_logs():
+    if LOG_FILE.exists():
+        try:
+            with open(LOG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def save_scan_logs(logs):
+    try:
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(logs[:150], f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+SCAN_LOGS = load_scan_logs()
+
+
+def add_scan_log(
+    action: str,
+    app: str,
+    summary: str,
+    count: int = 0,
+    shortcuts_count: int = 0,
+    items: list | None = None,
+    duration: float = 0.0,
+    status: str = "success",
+):
+    entry = {
+        "id": len(SCAN_LOGS) + 1,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time_str": datetime.now().strftime("%H:%M:%S"),
+        "action": action,
+        "app": app,
+        "summary": summary,
+        "count": count,
+        "shortcuts_count": shortcuts_count,
+        "items": items or [],
+        "duration": f"{duration:.2f}s" if duration else "",
+        "status": status,
+    }
+    SCAN_LOGS.insert(0, entry)
+    if len(SCAN_LOGS) > 150:
+        SCAN_LOGS.pop()
+    save_scan_logs(SCAN_LOGS)
+    return entry
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         clean_path = self.path.split("?")[0].rstrip("/")
@@ -1228,8 +1492,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "fastpaths": FASTPATHS,
                 "roadmap": roadmap_data,
                 "timestamp": datetime.now().isoformat(),
+                "last_scan": SCAN_LOGS[0] if SCAN_LOGS else None,
+                "total_scans": len(SCAN_LOGS),
             }
             self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        elif clean_path == "/api/logs":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "logs": SCAN_LOGS,
+                        "last_scan": SCAN_LOGS[0] if SCAN_LOGS else None,
+                        "total_scans": len(SCAN_LOGS),
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            )
         else:
             self.send_response(404)
             self.end_headers()
@@ -1250,6 +1532,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             res = am.run_system_prelearn()
+            if isinstance(res, dict):
+                apps = res.get("scanned_apps", [])
+                add_scan_log(
+                    action="System Pre-Learn",
+                    app=f"{len(apps)} Apps",
+                    summary=f"Full scan indexed {res.get('total_new_elements', 0)} controls across {len(apps)} applications",
+                    count=res.get("total_new_elements", 0),
+                    items=apps,
+                )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/hotkey":
@@ -1292,6 +1583,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             res = am.record_element_at_cursor(custom_name=req_data.get("name", ""))
+            if isinstance(res, dict) and res.get("status") == "element_recorded":
+                add_scan_log(
+                    action="Hover Record",
+                    app=res.get("app") or "Application",
+                    summary=f"Captured '{res.get('element')}' ({res.get('control_type')})",
+                    count=1,
+                    items=[res.get("element")],
+                )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/auto_record":
@@ -1302,6 +1601,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             win = req_data.get("window", "")
             res = am.auto_record_window(window_search=win, move_cursor=True)
+            if isinstance(res, dict) and res.get("status") == "auto_recorded":
+                add_scan_log(
+                    action="Auto-Tour",
+                    app=res.get("app") or win or "Application",
+                    summary=f"Automated cursor tour recorded {res.get('count', 0)} controls",
+                    count=res.get("count", 0),
+                    items=res.get("recorded_elements", [])[:25],
+                )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/deepdive":
@@ -1312,6 +1619,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             win = req_data.get("window", "")
             res = am.deep_dive_app(window_search=win)
+            if isinstance(res, dict) and res.get("status") == "deep_dive_complete":
+                discovered = [el.get("name") for el in res.get("discovered_elements", []) if el.get("name")]
+                add_scan_log(
+                    action="Deep Dive",
+                    app=res.get("app") or win or "Application",
+                    summary=f"Indexed {res.get('total_elements', 0)} controls & {res.get('total_shortcuts', 0)} shortcuts",
+                    count=res.get("total_elements", 0),
+                    shortcuts_count=res.get("total_shortcuts", 0),
+                    items=discovered[:25],
+                    duration=res.get("duration_seconds", 0.0),
+                )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/snap_window":

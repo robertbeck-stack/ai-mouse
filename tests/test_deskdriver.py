@@ -8,8 +8,11 @@ from pathlib import Path
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Add src to path
-src_path = Path(__file__).parent.parent / "src"
+# Add src and root to path
+root_path = Path(__file__).parent.parent
+src_path = root_path / "src"
+if str(root_path) not in sys.path:
+    sys.path.insert(0, str(root_path))
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
@@ -236,6 +239,25 @@ def test_deep_dive():
         print(f" -> Deep dive indexed {res['total_elements']} elements for {res['app']}")
 
 
+def test_dashboard_scan_logging():
+    print("Testing dashboard scan logging & history tracking...")
+    import dashboard
+    entry = dashboard.add_scan_log(
+        action="Deep Dive",
+        app="testapp",
+        summary="Test deep dive scan",
+        count=12,
+        shortcuts_count=3,
+        items=["File", "Edit", "Save"],
+        duration=0.15,
+    )
+    assert entry["action"] == "Deep Dive"
+    assert entry["app"] == "testapp"
+    assert len(dashboard.SCAN_LOGS) > 0
+    assert dashboard.SCAN_LOGS[0]["app"] == "testapp"
+    print(f" -> Dashboard scan logging active (latest: {dashboard.SCAN_LOGS[0]['summary']})")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -254,6 +276,7 @@ def run_all():
     test_multimonitor_and_waiting()
     test_auto_record()
     test_deep_dive()
+    test_dashboard_scan_logging()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 
