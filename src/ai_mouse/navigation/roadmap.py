@@ -76,8 +76,32 @@ class UIRoadmap:
                 "height": el.get("rect", {}).get("height", 0),
             }
 
+        # Merge standard application hotkey profiles if known
+        from ai_mouse.navigation.hotkeys import APP_PROFILES
+        app_profile = APP_PROFILES.get(app_key, {})
+        for action_name, hk in app_profile.items():
+            matched_key = None
+            for k in self.map[app_key]["elements"]:
+                if action_name in k or k in action_name:
+                    matched_key = k
+                    break
+            if matched_key:
+                if not self.map[app_key]["elements"][matched_key].get("shortcut"):
+                    self.map[app_key]["elements"][matched_key]["shortcut"] = hk
+            else:
+                self.map[app_key]["elements"][action_name] = {
+                    "name": action_name.title(),
+                    "control_type": "HotkeyAction",
+                    "shortcut": hk,
+                    "rel_x": 0,
+                    "rel_y": 0,
+                    "width": 0,
+                    "height": 0,
+                }
+
         self.map[app_key]["last_updated"] = time.time()
         self.save()
+
 
     def find_cached_element(self, window_title: str, element_name: str, window_rect: dict) -> dict | None:
         """O(1) instant lookup from roadmap memory."""

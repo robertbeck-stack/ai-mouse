@@ -52,14 +52,26 @@ def test_keyboard_support():
     print(f" -> Universal hotkeys registered: {len(COMMON_HOTKEYS)}")
 
 
+def test_hotkeys_extraction():
+    print("Testing hotkey extraction...")
+    from ai_mouse.navigation.hotkeys import extract_shortcut_from_name, get_app_hotkeys
+    name, sc = extract_shortcut_from_name("Feitletrað (Ctrl+B)")
+    assert name == "Feitletrað" and sc == "Ctrl+B"
+    name, sc = extract_shortcut_from_name("Save File (Ctrl+Shift+S)")
+    assert name == "Save File" and sc == "Ctrl+Shift+S"
+    notepad_keys = get_app_hotkeys("Notepad")
+    assert len(notepad_keys) > 10
+    print(f" -> Notepad hotkeys recognized: {len(notepad_keys)}")
+
+
 def run_all():
     test_core_mouse()
     test_window_enumeration()
     test_element_inspection()
     test_roadmap_lookup()
     test_keyboard_support()
+    test_hotkeys_extraction()
     print("\nALL MODULAR TESTS PASSED!")
-
 
 
 if __name__ == "__main__":

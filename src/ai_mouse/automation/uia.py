@@ -153,14 +153,18 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
                 w = rect.right - rect.left
                 h = rect.bottom - rect.top
                 if is_interactive_control(child) and w > 0 and h > 0:
-                    name = get_element_name(child)
+                    raw_name = get_element_name(child)
                     cx = (rect.left + rect.right) // 2
                     cy = (rect.top + rect.bottom) // 2
                     sc = getattr(child, "AcceleratorKey", "") or getattr(child, "AccessKey", "")
+                    
+                    from ai_mouse.navigation.hotkeys import extract_shortcut_from_name
+                    clean_name, final_shortcut = extract_shortcut_from_name(raw_name, fallback_shortcut=sc.strip() if sc else "")
+
                     elements.append({
-                        "name": name,
+                        "name": clean_name,
                         "control_type": child.ControlTypeName,
-                        "shortcut": sc.strip() if sc else "",
+                        "shortcut": final_shortcut,
                         "center_x": cx,
                         "center_y": cy,
                         "rect": {
