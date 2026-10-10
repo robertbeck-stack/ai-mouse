@@ -53,7 +53,7 @@ def is_interactive_control(child) -> bool:
 
 
 def get_element_name(ctrl) -> str:
-    """Extract the best descriptive name with fallbacks to AutomationId or HelpText."""
+    """Extract the best descriptive name with fallbacks to AutomationId, HelpText, or coordinate tag."""
     name = (ctrl.Name or "").strip()
     if name:
         return name
@@ -68,8 +68,10 @@ def get_element_name(ctrl) -> str:
     if help_text and str(help_text).strip():
         return help_text.strip()
 
-    return f"({ctrl.ControlTypeName})"
-
+    rect = ctrl.BoundingRectangle
+    cx = (rect.left + rect.right) // 2
+    cy = (rect.top + rect.bottom) // 2
+    return f"unnamed_{ctrl.ControlTypeName.lower()}_{cx}_{cy}"
 
 
 def get_element_under_cursor() -> dict:
@@ -117,10 +119,10 @@ def get_element_at(x: int, y: int) -> dict:
         return {"error": str(e), "x": x, "y": y}
 
 
-def list_clickable_elements(window_search: str | None = None, max_elements: int = 50) -> list[dict]:
+def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
     """
     Find clickable interactive elements in the active window or target window.
-    Automatically caches discovered elements into the roadmap.
+    Deep traversal with high coverage for web browsers, settings, and desktop apps.
     """
     ensure_desktop()
 
@@ -143,7 +145,7 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
     elements = []
 
     def walk(ctrl, depth=0):
-        if depth > 7 or len(elements) >= max_elements:
+        if depth > 12 or len(elements) >= max_elements:
             return
         try:
             for child in ctrl.GetChildren():
@@ -173,6 +175,7 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
             pass
 
     walk(target_ctrl)
+
 
     # Automatically learn discovered elements into the roadmap
     try:

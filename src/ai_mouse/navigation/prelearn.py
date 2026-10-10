@@ -12,7 +12,7 @@ from ai_mouse.navigation.roadmap import roadmap
 import uiautomation as auto
 
 
-def run_system_prelearn(max_elements_per_app: int = 50) -> dict:
+def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
     """
     Scan all open windows and the taskbar, indexing their interactive elements
     into the persistent ui_roadmap.json database.
@@ -40,7 +40,7 @@ def run_system_prelearn(max_elements_per_app: int = 50) -> dict:
         scanned_keys.add(app_key)
 
         try:
-            # Find elements in window
+            # Find elements in window with higher depth and element cap
             elements = list_clickable_elements(window_search=title, max_elements=max_elements_per_app)
             if elements:
                 results["scanned_apps"].append({
@@ -55,25 +55,39 @@ def run_system_prelearn(max_elements_per_app: int = 50) -> dict:
                 "error": str(e),
             })
 
-    # 2. Scan Windows Taskbar
+    # 2. Deep scan Windows Taskbar (Start, Search, Running Apps, System Tray)
     try:
         taskbar = auto.PaneControl(ClassName="Shell_TrayWnd")
         if taskbar.Exists(0, 0):
             t_rect = taskbar.BoundingRectangle
             tb_elements = []
-            for child in taskbar.GetChildren():
-                for sub in child.GetChildren():
-                    name = sub.Name.strip() if sub.Name else ""
-                    if name:
-                        r = sub.BoundingRectangle
-                        if r.right - r.left > 0 and r.bottom - r.top > 0:
+            visited_names = set()
+
+            def walk_taskbar(ctrl, depth=0):
+                if depth > 6 or len(tb_elements) >= 40:
+                    return
+                for child in ctrl.GetChildren():
+                    name = (child.Name or "").strip()
+                    r = child.BoundingRectangle
+                    w = r.right - r.left
+                    h = r.bottom - r.top
+
+                    # If has name or is button, and valid size
+                    if name and name not in visited_names and w > 0 and h > 0:
+                        # Exclude non-descriptive icon glyphs like single unknown unicode char
+                        if len(name) > 1 or name.isalnum():
+                            visited_names.add(name)
                             tb_elements.append({
                                 "name": name,
-                                "control_type": sub.ControlTypeName,
+                                "control_type": child.ControlTypeName,
                                 "center_x": (r.left + r.right) // 2,
                                 "center_y": (r.top + r.bottom) // 2,
-                                "rect": {"left": r.left, "top": r.top, "width": r.right - r.left, "height": r.bottom - r.top},
+                                "rect": {"left": r.left, "top": r.top, "width": w, "height": h},
                             })
+                    walk_taskbar(child, depth + 1)
+
+            walk_taskbar(taskbar)
+
             if tb_elements:
                 roadmap.learn_window(
                     window_title="taskbar",
@@ -88,6 +102,7 @@ def run_system_prelearn(max_elements_per_app: int = 50) -> dict:
                 results["total_new_elements"] += len(tb_elements)
     except Exception:
         pass
+
 
     results["duration_seconds"] = round(time.perf_counter() - t0, 2)
     results["total_mapped_apps"] = len(roadmap.map)
