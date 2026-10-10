@@ -4,9 +4,9 @@ Exposes modular tools to AI agents.
 """
 
 from mcp.server.mcpserver import MCPServer
-import ai_mouse as am
+import deskdriver as am
 
-server = MCPServer("ai-mouse")
+server = MCPServer("deskdriver")
 
 
 @server.tool()

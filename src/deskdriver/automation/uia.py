@@ -2,9 +2,9 @@
 UI Automation element detection, cursor inspection, and interactive control scanning.
 """
 
-from ai_mouse.core.desktop import ensure_desktop
-from ai_mouse.core.mouse import get_mouse_position
-from ai_mouse.automation.windows import list_windows, user32
+from deskdriver.core.desktop import ensure_desktop
+from deskdriver.core.mouse import get_mouse_position
+from deskdriver.automation.windows import list_windows, user32
 import uiautomation as auto
 
 # Comprehensive set of interactive control types across Windows & web apps
@@ -158,7 +158,7 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
                     cy = (rect.top + rect.bottom) // 2
                     sc = getattr(child, "AcceleratorKey", "") or getattr(child, "AccessKey", "")
                     
-                    from ai_mouse.navigation.hotkeys import extract_shortcut_from_name
+                    from deskdriver.navigation.hotkeys import extract_shortcut_from_name
                     clean_name, final_shortcut = extract_shortcut_from_name(raw_name, fallback_shortcut=sc.strip() if sc else "")
 
                     elements.append({
@@ -185,7 +185,7 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
 
     # Automatically learn discovered elements into the roadmap
     try:
-        from ai_mouse.navigation.roadmap import roadmap
+        from deskdriver.navigation.roadmap import roadmap
         top_win = target_ctrl.GetTopLevelControl() or target_ctrl
         w_rect = top_win.BoundingRectangle
         roadmap.learn_window(

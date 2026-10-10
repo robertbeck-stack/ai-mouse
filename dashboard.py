@@ -1,5 +1,5 @@
 """
-AI Mouse - The Wikipedia of Desktop Automation & UI Roadmaps
+DeskDriver - The Wikipedia of Desktop Automation & UI Roadmaps
 Interactive encyclopedic knowledge base served locally at http://localhost:8765
 Run: .\\.venv\\Scripts\\python dashboard.py
 """
@@ -16,9 +16,9 @@ src_path = Path(__file__).parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-import ai_mouse as am
-from ai_mouse.navigation.fastpaths import FASTPATHS
-from ai_mouse.core.keyboard import COMMON_HOTKEYS
+import deskdriver as am
+from deskdriver.navigation.fastpaths import FASTPATHS
+from deskdriver.core.keyboard import COMMON_HOTKEYS
 
 PORT = 8765
 
@@ -27,7 +27,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Mouse Wiki - The Free Desktop Automation Encyclopedia</title>
+    <title>DeskDriver Wiki - The Free Desktop Automation Encyclopedia</title>
     <style>
         :root {
             --bg: #0f141c;
@@ -492,14 +492,14 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="wiki-brand" onclick="navigateTo('main')">
             <span class="wiki-globe">🌐</span>
             <div class="wiki-brand-text">
-                <h1>AI MOUSE WIKIPEDIA</h1>
+                <h1>DESKDRIVER WIKIPEDIA</h1>
                 <p>The Free Desktop Automation Encyclopedia</p>
             </div>
         </div>
 
         <div class="wiki-search-bar">
             <span class="search-icon">🔍</span>
-            <input type="text" id="wikiGlobalSearch" class="wiki-search-input" placeholder="Search AI Mouse Wiki (Notepad, Brave, Fastpaths...)" oninput="handleGlobalSearch()">
+            <input type="text" id="wikiGlobalSearch" class="wiki-search-input" placeholder="Search DeskDriver Wiki (Notepad, Brave, Fastpaths...)" oninput="handleGlobalSearch()">
         </div>
 
         <div class="wiki-header-actions">
@@ -649,7 +649,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             container.innerHTML = `
                 <div class="welcome-banner">
                     <div>
-                        <div class="welcome-title">Welcome to AI Mouse Wiki</div>
+                        <div class="welcome-title">Welcome to DeskDriver Wiki</div>
                         <div class="welcome-sub">The open desktop knowledge base and spatial roadmap encyclopedia for Windows automation.</div>
                     </div>
                     <div class="stats-strip">
@@ -661,7 +661,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <div class="hatnote">
-                    AI Mouse provides sub-millisecond cursor execution, atomic SendInput typing, and persistent O(1) spatial indexing.
+                    DeskDriver provides sub-millisecond cursor execution, atomic SendInput typing, and persistent O(1) spatial indexing.
                 </div>
 
                 <h2 class="wiki-h2">Indexed Applications Encyclopedia</h2>
@@ -747,7 +747,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
                 <div class="article-header">
                     <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)} (software)</h1>
-                    <div class="article-tagline">From AI Mouse Wiki, the open desktop knowledge base</div>
+                    <div class="article-tagline">From DeskDriver Wiki, the open desktop knowledge base</div>
                 </div>
 
                 <div class="hatnote">
@@ -765,7 +765,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
                 <h2 class="wiki-h2" id="sec-overview">1 Overview</h2>
                 <p>
-                    <strong>${appKey}</strong> has been indexed into the AI Mouse roadmap cache. AI agents can resolve coordinates for this application in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
+                    <strong>${appKey}</strong> has been indexed into the DeskDriver roadmap cache. AI agents can resolve coordinates for this application in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
                 </p>
 
                 <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators</h2>
@@ -810,7 +810,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             container.innerHTML = `
                 <div class="article-header">
                     <h1 class="article-title">Universal Keyboard Accelerators</h1>
-                    <div class="article-tagline">From AI Mouse Wiki, the open desktop knowledge base</div>
+                    <div class="article-tagline">From DeskDriver Wiki, the open desktop knowledge base</div>
                 </div>
 
                 <div class="hatnote">
@@ -847,7 +847,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             container.innerHTML = `
                 <div class="article-header">
                     <h1 class="article-title">Windows OS Fastpaths (URI Schemes)</h1>
-                    <div class="article-tagline">From AI Mouse Wiki, the open desktop knowledge base</div>
+                    <div class="article-tagline">From DeskDriver Wiki, the open desktop knowledge base</div>
                 </div>
 
                 <div class="hatnote">
@@ -1084,7 +1084,7 @@ def run_dashboard(port: int | None = None, open_browser: bool = True):
     server = ThreadingHTTPServer(("127.0.0.1", actual_port), DashboardHandler)
     url = f"http://localhost:{actual_port}"
     print("=" * 65)
-    print("  [+] AI MOUSE WIKIPEDIA IS RUNNING:")
+    print("  [+] DESKDRIVER WIKIPEDIA IS RUNNING:")
     print(f"  [>] Open in browser: {url}")
     print("  (Press Ctrl+C to terminate)")
     print("=" * 65)

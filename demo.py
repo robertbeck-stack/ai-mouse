@@ -1,5 +1,5 @@
 """
-Interactive Demo for AI Mouse & Desktop Control.
+Interactive Demo for DeskDriver Desktop Automation.
 Run: .\\.venv\\Scripts\\python demo.py
 """
 
@@ -12,53 +12,53 @@ src_path = Path(__file__).parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-import ai_mouse as am
+import deskdriver as dd
 
 
 def print_banner():
     print("=" * 60)
-    print("       AI MOUSE & UI AUTOMATION CONTROLLER (DEMO)")
+    print("       DESKDRIVER - NATIVE DESKTOP AUTOMATION (DEMO)")
     print("=" * 60)
 
 
 def test_inspect_cursor():
-    x, y = am.get_mouse_position()
-    print(f"\n[+] Músarhnit: ({x}, {y})")
-    print("[+] Skoða hvað er undir músinni...")
-    info = am.get_element_under_cursor()
-    print(f"    Heiti:         {info.get('name')!r}")
-    print(f"    Tegund (Type): {info.get('control_type')}")
-    print(f"    Gluggi:        {info.get('window_title')!r}")
+    x, y = dd.get_mouse_position()
+    print(f"\n[+] Cursor coordinates: ({x}, {y})")
+    print("[+] Inspecting element under cursor...")
+    info = dd.get_element_under_cursor()
+    print(f"    Name:         {info.get('name')!r}")
+    print(f"    Type:         {info.get('control_type')}")
+    print(f"    Window:       {info.get('window_title')!r}")
     rect = info.get("bounding_rect", {})
-    print(f"    Stærð:         {rect.get('width')}x{rect.get('height')} px")
+    print(f"    Dimensions:   {rect.get('width')}x{rect.get('height')} px")
 
 
 def test_list_windows():
-    print("\n[+] Sæki alla sýnilega glugga á skjánum:")
-    wins = am.list_windows()
-    for i, w in enumerate(wins, 1):
+    print("\n[+] Enumerating all visible desktop windows:")
+    wins = dd.list_windows()
+    for i, w in enumerate(wins[:10], 1):
         print(f"  {i}. [{w['hwnd']}] {w['title']}")
 
 
 def test_list_buttons():
-    print("\n[+] Sæki smellanlega hnappa í virka glugganum:")
-    buttons = am.list_clickable_elements(max_elements=15)
+    print("\n[+] Inspecting interactive controls in active window:")
+    buttons = dd.list_clickable_elements(max_elements=15)
     if not buttons:
-        print("  Engir hnappar fundust í núverandi forritsglugga.")
+        print("  No clickable controls detected in active foreground window.")
     for b in buttons:
-        print(f"  - [{b['control_type']}] {b['name']!r} -> Miðja: ({b['center_x']}, {b['center_y']})")
+        print(f"  - [{b['control_type']}] {b['name']!r} -> Center: ({b['center_x']}, {b['center_y']})")
 
 
 def test_smooth_movement():
-    start_x, start_y = am.get_mouse_position()
-    print(f"\n[+] Núverandi staðsetning: ({start_x}, {start_y})")
-    target_x, target_y = start_x + 60, start_y + 60
-    print(f"[+] Hreyfi músina mjúklega á ({target_x}, {target_y}) með Bézier-kúrfu...")
-    am.move_mouse(target_x, target_y, smooth=True, duration=0.25)
+    start_x, start_y = dd.get_mouse_position()
+    print(f"\n[+] Current cursor position: ({start_x}, {start_y})")
+    target_x, target_y = start_x + 50, start_y + 50
+    print(f"[+] Moving cursor with human Bézier curve to ({target_x}, {target_y})...")
+    dd.move_mouse(target_x, target_y, smooth=True, duration=0.25)
     time.sleep(0.15)
-    print(f"[+] Færi hana aftur á ({start_x}, {start_y})...")
-    am.move_mouse(start_x, start_y, smooth=True, duration=0.2)
-    print("[+] Hreyfingu lokið!")
+    print(f"[+] Restoring back to ({start_x}, {start_y})...")
+    dd.move_mouse(start_x, start_y, smooth=True, duration=0.2)
+    print("[+] Cursor motion complete!")
 
 
 def main():
@@ -68,7 +68,7 @@ def main():
     test_list_buttons()
     test_smooth_movement()
     print("\n" + "=" * 60)
-    print("Allar prófanir tókust! Modular ai-mouse er tilbúið.")
+    print("All demonstrations succeeded! DeskDriver is operational.")
     print("=" * 60)
 
 

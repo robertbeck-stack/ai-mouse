@@ -1,119 +1,234 @@
-# AI Mouse & UI Automation MCP Server
+# DeskDriver 🚀
+
+> **The Native Desktop Automation & Spatial Operating Layer for AI Agents**  
+> *Like WebDriver for the Web, DeskDriver is the sub-millisecond, token-free driver for desktop applications.*
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078d4.svg)]()
 [![MCP](https://img.shields.io/badge/MCP-2.3+-green.svg)](https://modelcontextprotocol.io)
-[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)]()
-
-Fast, human-like AI mouse controller and desktop UI automation server for Windows, communicating via the **Model Context Protocol (MCP)**.
-
----
-
-## Eiginleikar
-
-- **Eðlileg mannleg hreyfing:** Notar Bézier-ferla og *smoothstep easing* með náttúrulegri hröðun og sveiflu til að hreyfa bendilinn mjúklega yfir skjáinn (150–250 ms) án vélrænna stökka.
-- **Hvað er undir músinni?** Greinir samstundis nákvæmt heiti, tegund (`ButtonControl`, `EditControl`, `MenuItem` o.fl.), glugga og hnit stjórntækisins beint undir bendlinum.
-- **Sjálfvirkt Vegvísakort (UI Roadmap & Learning):** Lærir á forrit og vistar afstæð hnit (`rel_x, rel_y`) í [`ui_roadmap.json`](ui_roadmap.json). Uppfletting tekur $< 1$ ms í stað hægrar trjáleitar.
-- **Beinar stýrikerfisvísanir (OS Fastpaths – 0 ms):** Styður bein URI skipanir (t.d. `ms-settings:system`, `display`, `sound`, `calc:`) sem opna réttar síður samstundis án nokkurra músarsmella.
-- **Hreint og mátbundið skipulag (Modular Architecture):** Aðskilið í sjálfstæðar einingar fyrir mús, stýrikerfi, UI automation og leiðsögn.
+[![Latency](https://img.shields.io/badge/hotkey%20latency-0.5%20ms-success.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## Verkefnaskipulag (Architecture)
+## ⚡ Why DeskDriver?
 
-```text
-ai-mouse/
-├── src/
-│   └── ai_mouse/
-│       ├── core/
-│       │   ├── desktop.py       # Win32 desktop station & thread input samstilling
-│       │   └── mouse.py         # Bézier hreyfingar, bendilhnit og smellaðgerðir
-│       ├── automation/
-│       │   ├── windows.py       # Gluggagreining og virkjun í forgrunni
-│       │   └── uia.py           # UIAutomation element-leit og skoðun
-│       ├── navigation/
-│       │   ├── fastpaths.py     # OS URI tenglar (ms-settings, calc, taskmgr)
-│       │   └── roadmap.py       # Minnisgeymsla og O(1) hraðsmellir
-│       ├── server.py            # FastMCP Server með öllum verkfærum
-│       └── __init__.py          # Aðalútflutningur á öllum aðgerðum
-├── tests/
-│   └── test_ai_mouse.py         # Sjálfvirk einingapróf
-├── server.py                    # Aðalinngangur fyrir MCP þjóninn
-├── demo.py                      # Gagnvirkt sýniforrit í skel
-├── pyproject.toml               # Uppsetningarpakki
-└── requirements.txt             # Kröfur
+Traditional LLM computer-use agents rely on continuous vision captures: taking screenshots, uploading mega-pixel images, paying tens of thousands of tokens per turn, and waiting 2–5 seconds per action while guessing coordinate pixels.
+
+**DeskDriver provides a deterministic native fastpath:**
+
+| Metric | Vision-Based Computer Use | DeskDriver |
+| :--- | :--- | :--- |
+| **Action Latency** | 2,000 ms – 5,000 ms | **0.5 ms** (Hotkeys) / **< 1 ms** (Roadmap) / **0 ms** (OS URI) |
+| **Token Cost** | $0.02 – $0.10+ per click (Vision tokens) | **$0.00** (Native execution) |
+| **Coordinate Accuracy** | Fuzzy vision guessing (hallucination prone) | **100% Deterministic** (Win32 & UI Automation tree) |
+| **Window Resizing** | Breaks visual layout | **Dynamic edge-anchoring** (adapts automatically) |
+| **System Settings** | 5–10 slow sequential clicks | **Instant OS Fastpaths** (`ms-settings:`, `calc:`) |
+| **Movement Style** | Abrupt instant teleportation | **Human-like Bézier motion** (undetectable easing) |
+
+---
+
+## 🌐 DeskDriver Wikipedia (UI-Pedia)
+
+DeskDriver includes an authentic, Wikipedia-styled encyclopedic desktop knowledge base (`dashboard.py`):
+
+- **Main Encyclopedia:** Live statistics of all indexed applications, interactive controls, and global hotkeys.
+- **Application Articles:** Dedicated encyclopedic pages for apps (e.g. *Brave (software)*, *Notepad (software)*, *File Explorer*), detailing mapped controls, anchors, and shortcuts.
+- **Global Shortcut Registry:** Over 30 universal keyboard accelerators dispatchable on-demand.
+- **OS Fastpaths Table:** Instant URI protocol handlers to directly open system dialogs.
+- **Interactive Live Testing:** Test-click buttons and trigger hotkeys in real time directly from the encyclopedia.
+- **Dark & Light Mode:** Authentic Wikipedia typography, infoboxes, and responsive navigation.
+
+Launch it with a single command:
+```powershell
+deskdriver
+# Or: python dashboard.py
 ```
 
 ---
 
-## Uppsetning
+## 🛠️ Core Capabilities
+
+### 1. Atomic Win32 `SendInput` Engine
+Dispatches inputs directly into the Windows kernel event queue using verified 40-byte 64-bit `INPUT` unions. Completely avoids deprecated `keybd_event` or stuck auto-repeat modifiers.
+- Supports combined chords (`Ctrl+Shift+S`, `Win+Shift+S`, `Alt+F4`).
+- Handles isolated desktop stations (`SetThreadDesktop`).
+- Native Per-Monitor v2 DPI Awareness (`SetProcessDpiAwarenessContext(-4)`).
+
+### 2. Spatial Roadmap & Responsive Anchoring
+Learns application UI structures and serializes them to `ui_roadmap.json`.
+- **$O(1)$ coordinate resolution:** Resolves target buttons in under 1 ms without re-querying the accessibility tree.
+- **Responsive Anchors:** Automatically anchors controls to `top-left`, `top-right`, or `bottom-right`. When a window is resized, button coordinates dynamically adjust without re-scanning.
+
+### 3. OS Protocol Fastpaths (0 ms)
+Bypasses manual clicking for operating system utilities:
+- `open_fastpath("display")` &rarr; opens `ms-settings:display`
+- `open_fastpath("sound")` &rarr; opens `ms-settings:sound`
+- `open_fastpath("taskmgr")` &rarr; opens Windows Task Manager
+- `open_fastpath("calc")` &rarr; launches Calculator
+
+### 4. Human-like Bézier Cursor Dynamics
+Generates cubic Bézier curves parameterized with smoothstep velocity easing and micro-overshoot corrections, making cursor automation appear completely natural (150–250 ms duration) without mechanical jumping.
+
+### 5. Privacy Sanitizer & Community Hub Ready
+Built-in privacy sanitizer scrubs document filenames, file paths (`C:\Users\...`), emails, and PII before exporting roadmap profiles for community sharing. See [ROADMAP.md](ROADMAP.md).
+
+---
+
+## 📦 Installation & Setup
+
+### Requirements
+- Windows 10 or 11 (64-bit)
+- Python 3.10 or newer
 
 ```powershell
-# Búa til sýndarumhverfi
+# Clone the repository
+git clone https://github.com/robertbeck-stack/ai-mouse.git
+cd ai-mouse
+
+# Create and activate virtual environment
 python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
-# Virkja og setja upp pakka
-.\.venv\Scripts\pip install -r requirements.txt
+# Install in editable mode
+pip install -e .
 ```
 
 ---
 
-## Prófun
+## 🚀 Quickstart
 
-Keyrðu gagnvirka sýniforritið:
+### 1. Run the Interactive Demo
+Inspect your cursor, list foreground controls, and observe smooth Bézier movement:
 ```powershell
-.\.venv\Scripts\python demo.py
+python demo.py
 ```
 
-Eða keyrðu einingaprófin:
+### 2. Launch the Wikipedia Encyclopedia
 ```powershell
-.\.venv\Scripts\python tests/test_ai_mouse.py
+deskdriver
+# Open http://localhost:8765 in your browser
+```
+
+### 3. Run the Automated Test Suite
+```powershell
+python tests/test_deskdriver.py
 ```
 
 ---
 
-## MCP Verkfæri (Tools)
+## 🤖 MCP (Model Context Protocol) Integration
 
-Þegar þjónninn er tengdur við MCP biðlara (Claude Desktop, Cursor, Antigravity o.fl.) hefur gervigreindin aðgang að eftirfarandi verkfærum:
+DeskDriver exposes a high-performance **MCP Server** ready for integration with Claude Desktop, Antigravity, Cursor, and any MCP-compliant client.
 
-| Verkfæri | Lýsing |
-| :--- | :--- |
-| `fast_click(element_name, window_search, instant=True)` | **Sjálfvirk flýtirás:** Ef takki hefur flýtilykil (`Ctrl+S`, `Ctrl+T`) notar hann hann á **0.5 ms**. Annars smellir hann á hnit úr Roadmap á $< 1$ ms. |
-| `press_hotkey(hotkey)` | **Flýtilykill (0.5 ms):** Sendir lyklaborðssamsetningu (t.d. `ctrl+s`, `win+shift+s`, `ctrl+t`, `alt+f4`, `enter`). |
-| `type_text(text, enter=False)` | **Slá inn texta:** Sendir Unicode texta beint inn í virkan reit (t.d. leitarstiku eða textaskjal). |
-| `open_fastpath(target)` | **Bein flýtivísun í OS (0 ms):** Opnar stillingar samstundis (t.d. `system`, `display`, `sound`, `bluetooth`, `wifi`, `calculator`). |
-| `system_prelearn(max_elements_per_app=150)` | **Djúpskönnun:** Skannar öll opin forrit og verkstikuna og kennir Roadmap-inu alla takka fyrirfram. |
-| `get_roadmap_stats()` | Sýnir lista yfir forrit og takka sem þjónninn hefur kortlagt í minni. |
-| `get_mouse_position()` | Skilar núverandi `(x, y)` hnitum músarinnar á skjánum. |
-| `move_mouse(x, y, smooth=True, duration=0.25)` | Hreyfir músina á mjúkan, mannlegan hátt með Bézier-kúrfulíkani. |
-| `click(button="left", clicks=1)` | Smellir á núverandi stað (styður vinstri, hægri og tvísmell). |
-| `move_and_click(x, y, button="left", clicks=1)` | Færir músina og smellir í einni samfelldri aðgerð. |
-| `inspect_under_cursor()` | Greinir hvaða UI stjórntæki er beint undir bendlinum (tegund, heiti, gluggi). |
-| `inspect_at(x, y)` | Greinir stjórntæki á tilteknum hnitum án þess að færa bendilinn. |
-| `list_windows()` | Skilar lista yfir alla sýnilega glugga (heiti, stærð og staðsetning). |
-| `focus_window(title_or_hwnd)` | Setur tiltekinn glugga í forgrunn. |
-| `list_clickable_elements(window_search="", max_elements=40)` | Finnur alla smellanlega hnappa og tengla í virka glugganum með miðjuhnitum. |
+### Configuration (`claude_desktop_config.json`)
 
-
----
-
-## Tenging við MCP biðlara
-
-Bættu þessari uppsetningu við í `claude_desktop_config.json` eða stillingaskrá biðlarans:
+Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "ai-mouse": {
-      "command": "c:\\Users\\rober\\Downloads\\ai-mouse\\.venv\\Scripts\\python.exe",
-      "args": [
-        "c:\\Users\\rober\\Downloads\\ai-mouse\\server.py"
-      ]
+    "deskdriver": {
+      "command": "C:\\path\\to\\ai-mouse\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "deskdriver.server"]
     }
   }
 }
 ```
 
+### Available MCP Tools
+
+| Tool | Parameters | Description |
+| :--- | :--- | :--- |
+| `fast_click` | `element_name`, `window_search`, `instant=True` | **Smart action:** Dispatches hotkey if available (0.5 ms), or clicks cached roadmap coordinates (< 1 ms). |
+| `press_hotkey` | `hotkey` (e.g. `ctrl+s`, `win+shift+s`) | Dispatches an atomic keyboard accelerator directly to the OS event queue. |
+| `type_text` | `text`, `enter=False` | Types clean Unicode text into the active control via `SendInput`. |
+| `open_fastpath` | `target` (e.g. `system`, `sound`, `calc`) | Instantly opens Windows settings or tools via URI protocols (0 ms). |
+| `fill_input` | `element_name`, `text`, `press_enter=True` | Clicks an input field, clears existing content (`Ctrl+A` -> `Backspace`), and types the new text. |
+| `system_prelearn` | `max_elements_per_app=150` | Scans all open windows and caches their interactive controls into `ui_roadmap.json`. |
+| `get_roadmap_stats` | *none* | Returns cached application summaries and indexed controls. |
+| `get_mouse_position` | *none* | Returns current screen coordinates `(x, y)`. |
+| `move_mouse` | `x`, `y`, `smooth=True`, `duration=0.25` | Moves the cursor using human Bézier trajectory. |
+| `click` | `button="left"`, `clicks=1` | Clicks mouse button at current position (supports left, right, double). |
+| `move_and_click` | `x`, `y`, `button="left"`, `clicks=1` | Moves smoothly to target and clicks in a single action. |
+| `mouse_scroll` | `clicks=3`, `direction="down"` | Smoothly scrolls the mouse wheel. |
+| `drag_and_drop` | `start_x`, `start_y`, `end_x`, `end_y` | Performs click-drag-release operations. |
+| `inspect_under_cursor` | *none* | Inspects the UI Automation control directly under the cursor. |
+| `inspect_at` | `x`, `y` | Inspects control metadata at specific coordinates without moving cursor. |
+| `list_windows` | *none* | Returns all visible desktop windows with handles and coordinates. |
+| `focus_window` | `title_or_hwnd` | Brings a window to the foreground and focuses input. |
+| `list_clickable_elements` | `window_search=""`, `max_elements=40` | Finds buttons and inputs in a window with their exact center coordinates. |
+
 ---
 
-## Leyfi
-MIT License.
+## 🐍 Python API Usage
+
+DeskDriver can also be used directly as a standalone Python library:
+
+```python
+import deskdriver as dd
+
+# 1. Bring application to focus
+dd.focus_window("Notepad")
+
+# 2. Fast-click or trigger keyboard shortcuts (0.5 ms)
+dd.press_hotkey("ctrl+s")
+
+# 3. Fill an input field
+dd.fill_input("Address and search bar", "https://github.com", press_enter=True)
+
+# 4. Human-like Bézier mouse motion
+dd.move_mouse(500, 300, smooth=True, duration=0.2)
+
+# 5. Inspect what's under the cursor
+info = dd.get_element_under_cursor()
+print(f"Hovering over: {info['name']} ({info['control_type']})")
+```
+
+### Backward Compatibility
+For legacy integrations, `ai_mouse` is retained as an importable shim:
+```python
+# Fully supported drop-in alias
+import ai_mouse as am
+am.move_mouse(100, 100)
+```
+
+---
+
+## 🗺️ Project Architecture
+
+```text
+ai-mouse/
+├── src/
+│   ├── deskdriver/                # Primary package
+│   │   ├── core/                  # Low-level Win32 integration
+│   │   │   ├── desktop.py         # Thread desktops, DPI awareness context
+│   │   │   ├── keyboard.py        # 40-byte atomic SendInput, hotkeys
+│   │   │   └── mouse.py           # Bézier movement, clicks, scrolls, drags
+│   │   ├── automation/            # Windows UI Automation (UIA)
+│   │   │   ├── windows.py         # Window enumeration & foreground focus
+│   │   │   └── uia.py             # COM element inspection & clickables
+│   │   ├── navigation/            # Spatial navigation & caching
+│   │   │   ├── fastpaths.py       # OS URI handlers (ms-settings, calc)
+│   │   │   ├── hotkeys.py         # Accelerator extraction from UI text
+│   │   │   ├── prelearn.py        # Batch scanner for open applications
+│   │   │   └── roadmap.py         # O(1) cache with responsive anchors
+│   │   ├── sync/                  # Cloud sync & community sharing
+│   │   │   ├── sanitizer.py       # PII & path scrubbing
+│   │   │   └── client.py          # Community roadmap client
+│   │   └── server.py              # FastMCP Server implementation
+│   └── ai_mouse/                  # Backward compatibility shim
+│       └── __init__.py            # Re-exports deskdriver
+├── tests/
+│   └── test_deskdriver.py         # Self-check verification test suite
+├── dashboard.py                   # Wikipedia-style UI-Pedia web interface
+├── demo.py                        # Terminal interactive demo
+├── pyproject.toml                 # Packaging configuration (v0.2.0)
+└── ROADMAP.md                     # Community Hub & Future Architecture
+```
+
+---
+
+## 📄 License
+
+DeskDriver is released under the **MIT License**. Free for commercial and personal agent automation.

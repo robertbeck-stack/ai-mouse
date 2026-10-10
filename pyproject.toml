@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai-mouse"
-version = "0.1.0"
-description = "Fast, human-like AI mouse controller and UI automation MCP server for Windows"
+name = "deskdriver"
+version = "0.2.0"
+description = "DeskDriver - High-speed desktop automation & UI knowledge graph MCP server for Windows (like WebDriver, but for your Desktop)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -20,4 +20,6 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-mouse-server = "ai_mouse.server:main"
+deskdriver = "deskdriver.server:main"
+deskdriver-server = "deskdriver.server:main"
+ai-mouse-server = "deskdriver.server:main"

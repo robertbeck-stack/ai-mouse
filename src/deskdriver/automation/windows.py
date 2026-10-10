@@ -5,7 +5,7 @@ Windows enumeration, bounding boxes, and reliable foreground activation.
 import ctypes
 from ctypes import wintypes
 import time
-from ai_mouse.core.desktop import ensure_desktop
+from deskdriver.core.desktop import ensure_desktop
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32

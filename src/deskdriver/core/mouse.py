@@ -7,7 +7,7 @@ from ctypes import wintypes
 import time
 import math
 import random
-from ai_mouse.core.desktop import ensure_desktop
+from deskdriver.core.desktop import ensure_desktop
 
 user32 = ctypes.windll.user32
 

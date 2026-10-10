@@ -5,10 +5,10 @@ the UI Roadmap database before the user or AI starts issuing tasks.
 """
 
 import time
-from ai_mouse.core.desktop import ensure_desktop
-from ai_mouse.automation.windows import list_windows, focus_window
-from ai_mouse.automation.uia import list_clickable_elements
-from ai_mouse.navigation.roadmap import roadmap
+from deskdriver.core.desktop import ensure_desktop
+from deskdriver.automation.windows import list_windows, focus_window
+from deskdriver.automation.uia import list_clickable_elements
+from deskdriver.navigation.roadmap import roadmap
 import uiautomation as auto
 
 

@@ -5,10 +5,10 @@ Persistent UI Roadmap engine for spatial UI element caching and fast O(1) retrie
 import json
 import time
 from pathlib import Path
-from ai_mouse.core.desktop import ensure_desktop
-from ai_mouse.core.mouse import move_and_click, mouse_click, user32
-from ai_mouse.automation.windows import list_windows, focus_window
-from ai_mouse.navigation.fastpaths import execute_fastpath
+from deskdriver.core.desktop import ensure_desktop
+from deskdriver.core.mouse import move_and_click, mouse_click, user32
+from deskdriver.automation.windows import list_windows, focus_window
+from deskdriver.navigation.fastpaths import execute_fastpath
 
 ROADMAP_FILE = Path(__file__).parent.parent.parent.parent / "ui_roadmap.json"
 
@@ -85,7 +85,7 @@ class UIRoadmap:
             }
 
         # Merge standard application hotkey profiles if known
-        from ai_mouse.navigation.hotkeys import APP_PROFILES
+        from deskdriver.navigation.hotkeys import APP_PROFILES
         app_profile = APP_PROFILES.get(app_key, {})
         for action_name, hk in app_profile.items():
             matched_key = None
@@ -167,7 +167,7 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
     4. Automatically falls back to scanning and learning on cache miss.
     """
     ensure_desktop()
-    from ai_mouse.core.keyboard import press_hotkey, COMMON_HOTKEYS
+    from deskdriver.core.keyboard import press_hotkey, COMMON_HOTKEYS
 
     target_clean = element_name.lower().strip()
 
@@ -223,7 +223,7 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
 
 
     # 4. Cache miss: Scan, learn, and click
-    from ai_mouse.automation.uia import list_clickable_elements
+    from deskdriver.automation.uia import list_clickable_elements
 
     elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
     matched = None
@@ -266,7 +266,7 @@ def fill_input(
         return click_res
 
     time.sleep(0.04)
-    from ai_mouse.core.keyboard import press_hotkey, type_text
+    from deskdriver.core.keyboard import press_hotkey, type_text
 
     if clear_existing:
         press_hotkey("ctrl+a")

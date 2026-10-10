@@ -6,7 +6,7 @@ Supports hotkey combinations (Ctrl+S, Win+Shift+S, Alt+F4) and Unicode text typi
 import ctypes
 from ctypes import wintypes
 import time
-from ai_mouse.core.desktop import ensure_desktop
+from deskdriver.core.desktop import ensure_desktop
 
 user32 = ctypes.windll.user32
 

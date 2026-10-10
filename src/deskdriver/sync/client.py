@@ -6,7 +6,7 @@ Stubbed interface for future private sync and community hub operations.
 from pathlib import Path
 import json
 from typing import Any
-from ai_mouse.sync.sanitizer import sanitize_app_profile
+from deskdriver.sync.sanitizer import sanitize_app_profile
 
 
 class CloudSyncClient:
