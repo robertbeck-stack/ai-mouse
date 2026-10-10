@@ -387,4 +387,71 @@ def wait_and_click(
     return fast_click_element(element_name, window_search=window_search, instant=instant)
 
 
+def auto_record_window(
+    window_search: str = "",
+    move_cursor: bool = True,
+    max_elements: int = 25,
+) -> dict:
+    """
+    Automatically discovers interactive controls in a target application,
+    smoothly glides the mouse cursor over each control in sequence to verify it visually,
+    and indexes all coordinates into ui_roadmap.json.
+    """
+    from deskdriver.core.mouse import move_mouse
+    from deskdriver.automation.windows import list_windows, focus_window
+    from deskdriver.automation.uia import list_clickable_elements
+    import winsound
+
+    wins = list_windows()
+    target_win = None
+    if window_search:
+        q = window_search.lower()
+        for w in wins:
+            if q in w["title"].lower():
+                target_win = w
+                break
+    elif wins:
+        for w in wins:
+            t = w["title"].lower()
+            if "dashboard" not in t and "cmd" not in t and "terminal" not in t:
+                target_win = w
+                break
+        if not target_win:
+            target_win = wins[0]
+
+    if not target_win:
+        return {"error": "No target window found"}
+
+    focus_window(target_win["hwnd"])
+    time.sleep(0.15)
+
+    elements = list_clickable_elements(window_search=target_win["title"], max_elements=max_elements)
+    recorded_names = []
+
+    for el in elements:
+        cx = el["center_x"]
+        cy = el["center_y"]
+        if move_cursor and cx > 0 and cy > 0:
+            move_mouse(cx, cy, smooth=True, duration=0.14)
+            time.sleep(0.06)
+
+        roadmap.learn_window(target_win["title"], [el], target_win["rect"])
+        recorded_names.append(el["name"])
+
+    roadmap.save()
+    try:
+        winsound.MessageBeep(0)
+    except Exception:
+        pass
+
+    return {
+        "status": "auto_recorded",
+        "app": roadmap.get_app_key(target_win["title"]),
+        "window_title": target_win["title"],
+        "recorded_elements": recorded_names,
+        "count": len(recorded_names),
+    }
+
+
+
 

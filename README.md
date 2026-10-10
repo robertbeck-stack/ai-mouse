@@ -163,6 +163,7 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
 | `clipboard_paste` | `text` | Instantly pastes long multi-line text (0.5 ms) via Windows clipboard and `Ctrl+V`. |
 | `clipboard_get` | *none* | Reads the current text from the Windows clipboard. |
 | `record_current_element` | `custom_name=""` | Captures the element under cursor with responsive anchors directly into the roadmap cache. |
+| `auto_record_window` | `window_search=""`, `move_cursor=True` | Automatically glides the mouse cursor over controls in a window and records them. |
 | `wait_for_window` | `window_search`, `timeout=3.0` | Polls until a window appears, eliminating arbitrary sleep delays in AI agent execution. |
 | `wait_for_element` | `element_name`, `window_search=""`, `timeout=3.0` | Polls until a specific control/button is ready and rendered. |
 | `wait_and_click` | `element_name`, `window_search=""`, `timeout=3.0` | Waits for a target button/dialog and clicks it immediately in one atomic call. |

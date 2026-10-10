@@ -32,6 +32,7 @@ def test_shim_parity():
     assert am.wait_for_window is dd.wait_for_window
     assert am.wait_for_element is dd.wait_for_element
     assert am.wait_and_click is dd.wait_and_click
+    assert am.auto_record_window is dd.auto_record_window
     print(" -> Backward-compatibility shim matches deskdriver 100%")
 
 
@@ -213,6 +214,16 @@ def test_multimonitor_and_waiting():
     print(" -> Smart wait resolved cached element")
 
 
+def test_auto_record():
+    print("Testing auto_record_window...")
+    wins = dd.list_windows()
+    if wins:
+        res = dd.auto_record_window(window_search=wins[0]["title"], move_cursor=False, max_elements=2)
+        assert res["status"] == "auto_recorded"
+        assert "app" in res
+        print(f" -> Auto-recorded {res.get('count', 0)} controls for {res['app']}")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -229,6 +240,7 @@ def run_all():
     test_window_snapping()
     test_record_on_hover()
     test_multimonitor_and_waiting()
+    test_auto_record()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

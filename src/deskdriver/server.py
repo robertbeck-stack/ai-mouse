@@ -248,6 +248,16 @@ def record_current_element(custom_name: str = "") -> dict:
 
 
 @server.tool()
+def auto_record_window(window_search: str = "", move_cursor: bool = True, max_elements: int = 25) -> dict:
+    """
+    Automatically discovers controls in a window, glides the mouse cursor over each
+    one with human-like Bézier motion to visually verify, and persists coordinates into ui_roadmap.json.
+    """
+    return am.auto_record_window(window_search=window_search, move_cursor=move_cursor, max_elements=max_elements)
+
+
+
+@server.tool()
 def wait_for_window(window_search: str, timeout: float = 3.0) -> dict:
     """
     Poll until a target window appears and becomes visible.

@@ -30,35 +30,35 @@ HTML_CONTENT = """<!DOCTYPE html>
     <title>DeskDriver Wiki - The Free Desktop Automation Encyclopedia</title>
     <style>
         :root {
-            --bg: #0f141c;
-            --surface: #171e29;
-            --surface-elevated: #1f2837;
-            --border: #2e3848;
-            --border-light: #3e4a5d;
-            --text: #eaecf0;
-            --text-muted: #9aa0a6;
-            --primary: #60a5fa;
-            --primary-hover: #93c5fd;
-            --accent: #c084fc;
-            --success: #34d399;
-            --kbd-bg: #222d3d;
+            --bg: #ffffff;
+            --surface: #f8f9fa;
+            --surface-elevated: #eaecf0;
+            --border: #a2a9b1;
+            --border-light: #c8ccd1;
+            --text: #202122;
+            --text-muted: #54595d;
+            --primary: #3366cc;
+            --primary-hover: #0645ad;
+            --accent: #72777d;
+            --success: #14866d;
+            --kbd-bg: #f8f9fa;
             --serif: 'Linux Libertine', 'Georgia', 'Times New Roman', serif;
             --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            background: var(--bg);
-            color: var(--text);
+            background: #ffffff;
+            color: #202122;
             font-family: var(--sans);
-            font-size: 14.5px;
+            font-size: 14px;
             line-height: 1.6;
             min-height: 100vh;
         }
 
         /* TOP WIKIPEDIA HEADER */
         .wiki-header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
+            background: #ffffff;
+            border-bottom: 1px solid #c8ccd1;
             padding: 10px 24px;
             display: flex;
             align-items: center;
@@ -67,126 +67,125 @@ HTML_CONTENT = """<!DOCTYPE html>
             top: 0;
             z-index: 100;
             gap: 16px;
-            flex-wrap: wrap;
         }
         .wiki-brand {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             text-decoration: none;
-            color: var(--text);
+            color: #202122;
             cursor: pointer;
         }
         .wiki-globe {
-            font-size: 28px;
-            filter: drop-shadow(0 0 6px rgba(96,165,250,0.4));
+            font-size: 26px;
         }
         .wiki-brand-text h1 {
             font-family: var(--serif);
-            font-size: 18px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            color: #fff;
+            font-size: 20px;
+            font-weight: 500;
+            letter-spacing: -0.5px;
+            color: #202122;
             margin: 0;
-            line-height: 1.2;
+            line-height: 1.1;
         }
         .wiki-brand-text p {
             font-size: 11px;
-            color: var(--text-muted);
+            color: #54595d;
             margin: 0;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
         }
 
         .wiki-search-bar {
             flex: 1;
-            max-width: 460px;
+            max-width: 480px;
             position: relative;
+            display: flex;
         }
         .wiki-search-input {
             width: 100%;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 8px 14px 8px 36px;
-            border-radius: 20px;
+            background: #ffffff;
+            border: 1px solid #a2a9b1;
+            color: #202122;
+            padding: 7px 12px 7px 34px;
+            border-radius: 2px;
             font-size: 13.5px;
             outline: none;
-            transition: all 0.2s;
         }
         .wiki-search-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(96,165,250,0.15);
+            border-color: #3366cc;
+            box-shadow: inset 0 0 0 1px #3366cc;
         }
         .search-icon {
             position: absolute;
-            left: 12px;
+            left: 10px;
             top: 50%;
             transform: translateY(-50%);
-            font-size: 14px;
-            color: var(--text-muted);
+            font-size: 13px;
+            color: #54595d;
         }
 
         .wiki-header-actions {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
         .btn-wiki {
-            background: var(--surface-elevated);
-            color: var(--primary);
-            border: 1px solid var(--border);
-            padding: 6px 14px;
-            border-radius: 6px;
+            background: #f8f9fa;
+            color: #202122;
+            border: 1px solid #a2a9b1;
+            padding: 6px 12px;
+            border-radius: 2px;
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.1s;
             display: inline-flex;
             align-items: center;
             gap: 6px;
             text-decoration: none;
         }
         .btn-wiki:hover {
-            background: var(--border);
-            color: #fff;
+            background: #eaecf0;
+            border-color: #72777d;
         }
         .btn-wiki-primary {
-            background: linear-gradient(135deg, #0284c7, #2563eb);
-            color: #fff;
-            border: none;
+            background: #3366cc;
+            color: #ffffff;
+            border: 1px solid #2a4b8d;
+            font-weight: 600;
         }
         .btn-wiki-primary:hover {
-            filter: brightness(1.1);
+            background: #2a4b8d;
+            color: #ffffff;
         }
 
         /* TWO-COLUMN LAYOUT */
         .wiki-container {
-            max-width: 1380px;
+            max-width: 1400px;
             margin: 0 auto;
             display: flex;
             min-height: calc(100vh - 65px);
+            background: #ffffff;
         }
 
         /* LEFT SIDEBAR */
         .wiki-sidebar {
-            width: 240px;
+            width: 220px;
             flex-shrink: 0;
-            border-right: 1px solid var(--border);
-            padding: 20px 14px;
-            font-size: 13.5px;
+            border-right: 1px solid #c8ccd1;
+            padding: 16px 14px;
+            font-size: 13px;
+            background: #ffffff;
         }
         .sidebar-section {
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
         .sidebar-title {
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            padding-left: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #54595d;
+            margin-bottom: 6px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #eaecf0;
         }
         .sidebar-menu {
             list-style: none;
@@ -195,94 +194,127 @@ HTML_CONTENT = """<!DOCTYPE html>
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 7px 10px;
-            border-radius: 6px;
-            color: var(--text);
+            padding: 5px 6px;
+            color: #3366cc;
             text-decoration: none;
             cursor: pointer;
-            transition: all 0.15s;
-            margin-bottom: 2px;
+            border-radius: 2px;
         }
         .sidebar-item:hover {
-            background: var(--surface-elevated);
-            color: var(--primary);
+            text-decoration: underline;
+            color: #0645ad;
         }
         .sidebar-item.active {
-            background: rgba(96,165,250,0.12);
-            color: var(--primary);
-            font-weight: 600;
+            font-weight: bold;
+            color: #202122;
+            text-decoration: none;
+            background: #f8f9fa;
         }
         .sidebar-badge {
             font-size: 11px;
-            background: var(--surface);
-            color: var(--text-muted);
-            padding: 2px 6px;
+            background: #f8f9fa;
+            color: #54595d;
+            padding: 1px 5px;
             border-radius: 9999px;
-            border: 1px solid var(--border);
+            border: 1px solid #c8ccd1;
         }
 
         /* MAIN CONTENT ARTICLE AREA */
         .wiki-main {
             flex: 1;
-            padding: 28px 36px;
+            padding: 20px 40px;
+            background: #ffffff;
+            color: #202122;
             overflow-x: hidden;
         }
 
+        /* ARTICLE TABS (Article, Talk, Read, Edit, View history) */
+        .article-tabs-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            border-bottom: 1px solid #a2a9b1;
+            margin-bottom: 14px;
+        }
+        .tabs-left, .tabs-right {
+            display: flex;
+            gap: 2px;
+        }
+        .article-tab {
+            padding: 6px 12px;
+            font-size: 13px;
+            color: #3366cc;
+            text-decoration: none;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .article-tab:hover {
+            text-decoration: underline;
+        }
+        .article-tab.active {
+            color: #202122;
+            font-weight: 500;
+            border-bottom: 2px solid #3366cc;
+            background: #ffffff;
+        }
+
         .article-header {
-            margin-bottom: 18px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
         }
         .article-title {
             font-family: var(--serif);
-            font-size: 32px;
-            font-weight: 700;
-            color: #fff;
-            margin-bottom: 4px;
+            font-size: 30px;
+            font-weight: normal;
+            color: #202122;
+            margin-bottom: 2px;
             line-height: 1.2;
+            border-bottom: 1px solid #a2a9b1;
+            padding-bottom: 4px;
         }
         .article-tagline {
             font-size: 12.5px;
-            color: var(--text-muted);
-            font-style: italic;
+            color: #54595d;
+            margin-top: 4px;
         }
         .hatnote {
-            padding: 6px 12px;
-            background: rgba(255,255,255,0.02);
-            border-left: 3px solid var(--border-light);
+            padding: 4px 0;
             font-size: 13px;
-            color: var(--text-muted);
-            margin-bottom: 20px;
+            color: #54595d;
+            font-style: italic;
+            margin-bottom: 16px;
+        }
+        .hatnote a, p a {
+            color: #3366cc;
+            text-decoration: none;
+        }
+        .hatnote a:hover, p a:hover {
+            text-decoration: underline;
         }
 
         /* WIKIPEDIA INFOBOX */
         .infobox {
             float: right;
-            width: 320px;
-            margin: 0 0 20px 24px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 13px;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-            overflow: hidden;
+            width: 300px;
+            margin: 0 0 16px 20px;
+            background: #f8f9fa;
+            border: 1px solid #a2a9b1;
+            font-size: 12.5px;
+            padding: 5px;
+            line-height: 1.5;
         }
         .infobox-title {
-            background: var(--surface-elevated);
-            padding: 12px 16px;
-            font-family: var(--serif);
-            font-size: 17px;
-            font-weight: 700;
+            background: transparent;
+            padding: 4px 6px;
+            font-family: var(--sans);
+            font-size: 14px;
+            font-weight: bold;
             text-align: center;
-            color: var(--primary);
-            border-bottom: 1px solid var(--border);
+            color: #202122;
         }
         .infobox-image {
             text-align: center;
-            padding: 16px;
-            background: rgba(0,0,0,0.2);
-            font-size: 40px;
-            border-bottom: 1px solid var(--border);
+            padding: 10px;
+            font-size: 42px;
         }
         .infobox table {
             width: 100%;
@@ -290,48 +322,45 @@ HTML_CONTENT = """<!DOCTYPE html>
         }
         .infobox th {
             text-align: left;
-            padding: 8px 12px;
-            color: var(--text-muted);
-            width: 42%;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
+            padding: 4px 6px;
+            color: #202122;
+            width: 40%;
+            font-weight: bold;
             vertical-align: top;
+            border-top: 1px solid #eaecf0;
         }
         .infobox td {
-            padding: 8px 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            font-weight: 500;
+            padding: 4px 6px;
+            color: #202122;
+            border-top: 1px solid #eaecf0;
         }
 
         /* TABLE OF CONTENTS */
         .toc-box {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 14px 18px;
-            margin: 18px 0 24px 0;
+            background: #f8f9fa;
+            border: 1px solid #a2a9b1;
+            padding: 10px 16px;
+            margin: 16px 0 20px 0;
             display: inline-block;
-            min-width: 260px;
+            min-width: 240px;
         }
         .toc-title {
-            font-weight: 700;
+            font-weight: bold;
             font-size: 13px;
             text-align: center;
             margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            color: var(--text-muted);
+            color: #202122;
         }
         .toc-list {
             list-style: none;
             padding-left: 0;
-            font-size: 13.5px;
+            font-size: 13px;
         }
         .toc-item {
             margin-bottom: 4px;
         }
         .toc-link {
-            color: var(--primary);
+            color: #3366cc;
             text-decoration: none;
         }
         .toc-link:hover {
@@ -341,61 +370,73 @@ HTML_CONTENT = """<!DOCTYPE html>
         /* HEADINGS */
         .wiki-h2 {
             font-family: var(--serif);
-            font-size: 22px;
-            font-weight: 700;
-            color: #fff;
-            margin: 28px 0 12px 0;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--border);
+            font-size: 21px;
+            font-weight: normal;
+            color: #202122;
+            margin: 24px 0 10px 0;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #a2a9b1;
             clear: both;
+        }
+        .wiki-h2 .edit-link {
+            font-family: var(--sans);
+            font-size: 11px;
+            font-weight: normal;
+            margin-left: 8px;
+            color: #3366cc;
+            text-decoration: none;
+        }
+        .wiki-h2 .edit-link:hover {
+            text-decoration: underline;
         }
 
         /* WIKIPEDIA TABLES */
         .wikitable {
             width: 100%;
             border-collapse: collapse;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            margin: 14px 0 24px 0;
-            font-size: 13.5px;
+            background: #ffffff;
+            border: 1px solid #a2a9b1;
+            margin: 12px 0 20px 0;
+            font-size: 13px;
         }
         .wikitable th {
-            background: var(--surface-elevated);
-            padding: 10px 14px;
+            background: #eaecf0;
+            padding: 6px 10px;
             text-align: left;
-            font-weight: 700;
-            color: var(--text);
-            border-bottom: 1px solid var(--border);
+            font-weight: bold;
+            color: #202122;
+            border: 1px solid #a2a9b1;
         }
         .wikitable td {
-            padding: 10px 14px;
-            border-bottom: 1px solid var(--border);
+            padding: 6px 10px;
+            border: 1px solid #a2a9b1;
+            color: #202122;
+            background: #ffffff;
         }
         .wikitable tr:hover td {
-            background: rgba(96,165,250,0.05);
+            background: #f8f9fa;
         }
 
         /* KBD TAGS */
         .kbd-cap {
-            background: var(--kbd-bg);
-            color: #fff;
+            background: #f8f9fa;
+            color: #202122;
             font-family: monospace;
             font-size: 11.5px;
-            font-weight: 700;
-            padding: 2px 7px;
-            border-radius: 4px;
-            border: 1px solid var(--border-light);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 2px;
+            border: 1px solid #c8ccd1;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.1);
             display: inline-block;
         }
 
-        /* MAIN PAGE BANNER */
+        /* WELCOME BANNER */
         .welcome-banner {
-            background: linear-gradient(135deg, rgba(30,58,138,0.2), rgba(15,23,42,0.6));
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 20px 24px;
-            margin-bottom: 24px;
+            background: #f8f9fa;
+            border: 1px solid #a2a9b1;
+            padding: 16px 20px;
+            margin-bottom: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -404,34 +445,33 @@ HTML_CONTENT = """<!DOCTYPE html>
         }
         .welcome-title {
             font-family: var(--serif);
-            font-size: 22px;
-            font-weight: 700;
-            color: #fff;
+            font-size: 24px;
+            font-weight: normal;
+            color: #202122;
             margin-bottom: 4px;
         }
         .welcome-sub {
             font-size: 13.5px;
-            color: var(--text-muted);
+            color: #54595d;
         }
         .stats-strip {
             display: flex;
-            gap: 20px;
-            background: rgba(0,0,0,0.25);
-            padding: 10px 18px;
-            border-radius: 6px;
-            border: 1px solid var(--border);
+            gap: 18px;
+            background: #ffffff;
+            padding: 8px 16px;
+            border: 1px solid #a2a9b1;
         }
         .stat-item {
             text-align: center;
         }
         .stat-val {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--primary);
+            font-size: 19px;
+            font-weight: bold;
+            color: #3366cc;
         }
         .stat-lbl {
             font-size: 11px;
-            color: var(--text-muted);
+            color: #54595d;
             text-transform: uppercase;
         }
 
@@ -439,48 +479,48 @@ HTML_CONTENT = """<!DOCTYPE html>
         .encyclopedia-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 16px;
-            margin: 16px 0;
+            gap: 14px;
+            margin: 14px 0;
         }
         .encyclo-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
+            background: #ffffff;
+            border: 1px solid #a2a9b1;
+            padding: 14px;
             cursor: pointer;
-            transition: all 0.2s;
             text-decoration: none;
-            color: var(--text);
-            display: block;
+            color: inherit;
+            transition: all 0.15s;
         }
         .encyclo-card:hover {
-            border-color: var(--primary);
-            transform: translateY(-2px);
-            background: var(--surface-elevated);
+            background: #f8f9fa;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         }
         .encyclo-card h4 {
             font-family: var(--serif);
             font-size: 17px;
-            color: var(--primary);
+            color: #3366cc;
             margin-bottom: 4px;
-            text-transform: capitalize;
+        }
+        .encyclo-card:hover h4 {
+            text-decoration: underline;
         }
         .encyclo-card p {
             font-size: 12.5px;
-            color: var(--text-muted);
+            color: #54595d;
+            line-height: 1.4;
         }
 
         #toast {
             position: fixed;
             bottom: 24px;
             right: 24px;
-            background: #0284c7;
+            background: #202122;
             color: white;
-            padding: 12px 20px;
-            border-radius: 6px;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.5);
-            font-size: 13.5px;
-            font-weight: 600;
+            padding: 10px 18px;
+            border-radius: 2px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            font-size: 13px;
+            font-weight: 500;
             display: none;
             z-index: 1000;
         }
@@ -505,7 +545,8 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="wiki-header-actions">
             <button class="btn-wiki" onclick="fetchStats()">🔄 Refresh</button>
             <button id="btnRecordCursor" class="btn-wiki" onclick="triggerRecordCursor()" title="Move mouse over any button to record into Wikipedia">🎯 Record Hover</button>
-            <button id="btnPrelearn" class="btn-wiki btn-wiki-primary" onclick="triggerPrelearn()">🚀 Run Pre-Learn</button>
+            <button id="btnAutoRecord" class="btn-wiki btn-wiki-primary" onclick="triggerAutoMoveRecord()" title="Automatically move mouse over window controls and record into Wikipedia">🎯 Auto-Move & Record</button>
+            <button id="btnPrelearn" class="btn-wiki" onclick="triggerPrelearn()">⚡ Deep Scan</button>
         </div>
     </header>
 
@@ -733,26 +774,38 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
 
             container.innerHTML = `
+                <div class="article-tabs-bar">
+                    <div class="tabs-left">
+                        <span class="article-tab active">Article</span>
+                        <span class="article-tab">Talk</span>
+                    </div>
+                    <div class="tabs-right">
+                        <span class="article-tab active">Read</span>
+                        <span class="article-tab" onclick="triggerAutoMoveRecord('${appKey}')" title="Automatically move mouse over this app and record">🎯 Auto-Scan & Move</span>
+                        <span class="article-tab" onclick="fetchStats()">View history</span>
+                    </div>
+                </div>
+
                 <!-- WIKIPEDIA INFOBOX -->
                 <div class="infobox">
-                    <div class="infobox-title">${appKey.toUpperCase()}</div>
+                    <div class="infobox-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)} (software)</div>
                     <div class="infobox-image">🖥️</div>
                     <table>
-                        <tr><th>App Family</th><td>${appKey}</td></tr>
+                        <tr><th>Family</th><td>${appKey}</td></tr>
                         <tr><th>Indexed Controls</th><td><strong>${elements.length}</strong> items</td></tr>
-                        <tr><th>Shortcuts Mapped</th><td><strong>${hotkeyElements.length}</strong> hotkeys</td></tr>
+                        <tr><th>Shortcuts</th><td><strong>${hotkeyElements.length}</strong> hotkeys</td></tr>
                         <tr><th>Positioning</th><td>Relative + Anchors</td></tr>
                         <tr><th>Cache Storage</th><td><code>ui_roadmap.json</code></td></tr>
                     </table>
                 </div>
 
                 <div class="article-header">
-                    <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)} (software)</h1>
-                    <div class="article-tagline">From DeskDriver Wiki, the open desktop knowledge base</div>
+                    <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)}</h1>
+                    <div class="article-tagline">From DeskDriver Wiki, the free encyclopedia</div>
                 </div>
 
                 <div class="hatnote">
-                    This article documents the spatial coordinates, interactive UI elements, and keyboard accelerators mapped for <strong>${appKey}</strong>.
+                    "<em>${appKey} (software)</em>" redirects here. This article documents interactive controls and keyboard accelerators indexed for <strong>${appKey}</strong>.
                 </div>
 
                 <div class="toc-box">
@@ -764,12 +817,12 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </ul>
                 </div>
 
-                <h2 class="wiki-h2" id="sec-overview">1 Overview</h2>
+                <h2 class="wiki-h2" id="sec-overview">1 Overview <a href="#" class="edit-link" onclick="triggerAutoMoveRecord('${appKey}'); return false;">[ auto-scan & move ]</a></h2>
                 <p>
                     <strong>${appKey}</strong> has been indexed into the DeskDriver roadmap cache. AI agents can resolve coordinates for this application in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
                 </p>
 
-                <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators</h2>
+                <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators <span class="edit-link">[ edit ]</span></h2>
                 <p style="color: var(--text-muted); margin-bottom: 12px;">Mapped hotkeys allow instant 0.5 ms actions without cursor movement:</p>
                 <table class="wikitable">
                     <thead>
@@ -952,6 +1005,37 @@ HTML_CONTENT = """<!DOCTYPE html>
                         btn.innerText = '🎯 Record Hover';
                     }
                     showToast('Capture error: ' + e);
+                }
+            }
+        }
+
+        async function triggerAutoMoveRecord(appKey) {
+            const btn = document.getElementById('btnAutoRecord');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = '🎯 Moving Mouse & Scanning...';
+            }
+            showToast('Starting automated cursor tour: DeskDriver is physically moving the mouse over controls...', 4000);
+            try {
+                const res = await fetch('/api/auto_record', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ window: appKey || currentApp || '' })
+                });
+                const data = await res.json();
+                if (data.status === 'auto_recorded') {
+                    showToast(`✅ Auto-tour complete! Moved cursor and recorded ${data.count} controls for ${data.app}!`);
+                    fetchStats();
+                    if (data.app) navigateTo('app', data.app);
+                } else {
+                    showToast('Scan error: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                showToast('Auto-record error: ' + e);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = '🎯 Auto-Move & Record';
                 }
             }
         }
@@ -1165,6 +1249,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             res = am.record_element_at_cursor(custom_name=req_data.get("name", ""))
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/auto_record":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            win = req_data.get("window", "")
+            res = am.auto_record_window(window_search=win, move_cursor=True)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/snap_window":
