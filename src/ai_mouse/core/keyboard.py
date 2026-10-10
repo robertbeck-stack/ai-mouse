@@ -98,6 +98,47 @@ COMMON_HOTKEYS = {
 }
 
 
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_ulonglong),
+    ]
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_ulonglong),
+    ]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ("uMsg", wintypes.DWORD),
+        ("wParamL", wintypes.WORD),
+        ("wParamH", wintypes.WORD),
+    ]
+
+
+class INPUT(ctypes.Structure):
+    class _INPUT(ctypes.Union):
+        _fields_ = [
+            ("mi", MOUSEINPUT),
+            ("ki", KEYBDINPUT),
+            ("hi", HARDWAREINPUT),
+        ]
+
+    _anonymous_ = ("_input",)
+    _fields_ = [("type", wintypes.DWORD), ("_input", _INPUT)]
+
+
 def _get_vk_code(key_str: str) -> int:
     """Resolve key string to Windows Virtual Key code."""
     k = key_str.lower().strip()
@@ -113,7 +154,8 @@ def _get_vk_code(key_str: str) -> int:
 
 def press_hotkey(hotkey: str, delay: float = 0.05):
     """
-    Press and release a key combination (e.g. 'ctrl+s', 'win+shift+s', 'alt+f4', 'enter').
+    Press and release a key combination (e.g. 'ctrl+s', 'win+shift+s', 'alt+f4', 'enter')
+    using atomic Windows SendInput.
     """
     ensure_desktop()
     parts = [p.strip() for p in hotkey.lower().replace("+", " ").split() if p.strip()]
@@ -126,30 +168,35 @@ def press_hotkey(hotkey: str, delay: float = 0.05):
 
     # 1. Key down in sequence
     for vk in vk_codes:
-        user32.keybd_event(vk, 0, 0, 0)
+        inp = (INPUT * 1)(INPUT(type=1, ki=KEYBDINPUT(wVk=vk, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)))
+        user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
         time.sleep(0.01)
 
     time.sleep(delay)
 
     # 2. Key up in reverse sequence
     for vk in reversed(vk_codes):
-        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+        inp = (INPUT * 1)(INPUT(type=1, ki=KEYBDINPUT(wVk=vk, wScan=0, dwFlags=KEYEVENTF_KEYUP, time=0, dwExtraInfo=0)))
+        user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
         time.sleep(0.01)
 
 
-def type_text(text: str, enter: bool = False, delay: float = 0.005):
+def type_text(text: str, enter: bool = False, delay: float = 0.015):
     """
-    Type Unicode text directly into the focused control without clipboard dependencies.
+    Type Unicode text directly into the focused control using atomic Windows SendInput.
+    Dispatches paired KeyDown and KeyUp events atomically to avoid dropped keys or stuck auto-repeat.
     """
     ensure_desktop()
     for char in text:
         code = ord(char)
-        # Send Unicode character down & up
-        user32.keybd_event(0, code, KEYEVENTF_UNICODE, 0)
-        user32.keybd_event(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0)
+        inputs = (INPUT * 2)(
+            INPUT(type=1, ki=KEYBDINPUT(wVk=0, wScan=code, dwFlags=KEYEVENTF_UNICODE, time=0, dwExtraInfo=0)),
+            INPUT(type=1, ki=KEYBDINPUT(wVk=0, wScan=code, dwFlags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, time=0, dwExtraInfo=0)),
+        )
+        user32.SendInput(2, ctypes.byref(inputs), ctypes.sizeof(INPUT))
         if delay > 0:
             time.sleep(delay)
 
     if enter:
-        time.sleep(0.03)
+        time.sleep(0.04)
         press_hotkey("enter")
