@@ -322,6 +322,29 @@ def test_application_tree():
     print(f" -> Dynamic tree hierarchy verified: Settings ({settings_tree['total_items']} options) & Notepad ({np_tree['total_controls']} controls mapped)")
 
 
+def test_session_recorder():
+    print("Testing SessionRecorder live monitoring...")
+    status_init = dd.get_recording_status()
+    assert isinstance(status_init, dict)
+    assert status_init.get("recording") is False
+
+    res_start = dd.start_recording()
+    assert res_start.get("status") == "recording_started"
+    status_active = dd.get_recording_status()
+    assert status_active.get("recording") is True
+
+    # Stop recording
+    res_stop = dd.stop_recording()
+    assert res_stop.get("status") == "recording_stopped"
+    assert "pipeline" in res_stop
+    assert "actions_count" in res_stop
+    assert "visited_apps" in res_stop
+
+    status_after = dd.get_recording_status()
+    assert status_after.get("recording") is False
+    print(f" -> Live SessionRecorder lifecycle verified (pipeline: '{res_stop.get('pipeline')}')")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -343,8 +366,10 @@ def run_all():
     test_dashboard_scan_logging()
     test_action_pipeline()
     test_application_tree()
+    test_session_recorder()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 
 if __name__ == "__main__":
     run_all()
+

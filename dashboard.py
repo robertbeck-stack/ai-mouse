@@ -157,6 +157,27 @@ HTML_CONTENT = """<!DOCTYPE html>
             background: #2a4b8d;
             color: #ffffff;
         }
+        .btn-wiki-record {
+            background: #ffffff;
+            color: #b32424;
+            border: 1px solid #d33;
+            font-weight: 600;
+        }
+        .btn-wiki-record:hover {
+            background: #fdf2f2;
+            border-color: #b00;
+        }
+        .btn-wiki-record.recording {
+            background: #d33;
+            color: #ffffff;
+            border-color: #a00;
+            animation: pulse-rec 1.2s infinite;
+        }
+        @keyframes pulse-rec {
+            0% { box-shadow: 0 0 0 0 rgba(221, 51, 51, 0.7); }
+            70% { box-shadow: 0 0 0 8px rgba(221, 51, 51, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(221, 51, 51, 0); }
+        }
 
         /* TWO-COLUMN LAYOUT */
         .wiki-container {
@@ -604,6 +625,31 @@ HTML_CONTENT = """<!DOCTYPE html>
     </style>
 </head>
 <body>
+    <!-- RECORDING SESSION MODAL -->
+    <div id="recModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); z-index:9999; justify-content:center; align-items:center;">
+        <div style="background:#ffffff; border:1px solid #a2a9b1; box-shadow:0 8px 30px rgba(0,0,0,0.35); max-width:640px; width:92%; padding:24px 28px; border-radius:3px; position:relative;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #a2a9b1; padding-bottom:12px; margin-bottom:16px;">
+                <h2 style="font-family:var(--serif); font-size:22px; color:#202122; margin:0;">🎬 Live Recording Session Complete</h2>
+                <span onclick="closeRecModal()" style="font-size:24px; cursor:pointer; color:#72777d; line-height:1;">&times;</span>
+            </div>
+            <div id="recModalStats" style="margin-bottom:16px; font-size:13.5px; color:#202122; line-height:1.6;">
+                <!-- Populated dynamically -->
+            </div>
+            <div style="margin-bottom:16px;">
+                <label style="display:block; font-weight:bold; font-size:12px; margin-bottom:6px; color:#54595d; text-transform:uppercase;">Generated Action Pipeline String:</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="recModalPipeline" class="wiki-search-input" style="flex:1; border-radius:2px; font-family:monospace; font-size:13px; padding:8px 10px; background:#f8f9fa;" readonly>
+                    <button class="btn-wiki" onclick="copyModalPipeline()">📋 Copy</button>
+                </div>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; border-top:1px solid #eaecf0; padding-top:16px;">
+                <button class="btn-wiki" onclick="closeRecModal()">Dismiss</button>
+                <button class="btn-wiki" onclick="saveModalPipelinePrompt()">💾 Save Pipeline</button>
+                <button class="btn-wiki btn-wiki-primary" onclick="runModalPipeline()">⚡ Run Pipeline Now</button>
+            </div>
+        </div>
+    </div>
+
     <!-- TOP WIKIPEDIA NAV -->
     <header class="wiki-header">
         <div class="wiki-brand" onclick="navigateTo('main')">
@@ -622,6 +668,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="wiki-header-actions">
             <button class="btn-wiki" onclick="fetchStats()" title="Reload cached statistics">🔄 Refresh</button>
             <button id="btnSystemScan" class="btn-wiki btn-wiki-primary" onclick="triggerSystemScan()" title="Scan all open Windows applications and index their controls">⚡ System Scan</button>
+            <button id="btnLiveRecord" class="btn-wiki btn-wiki-record" onclick="toggleLiveRecording()" title="Start/Stop live recording of clicks, window focus, and background discovery">🔴 Record Session</button>
             <button id="btnLog" class="btn-wiki" onclick="navigateTo('history')" title="View recent scan and recording activity log">📜 Scan Log</button>
         </div>
     </header>
@@ -1761,6 +1808,135 @@ HTML_CONTENT = """<!DOCTYPE html>
                     btn.innerText = '⚡ System Scan';
                 }
             }
+        let isRecordingLive = false;
+        let recInterval = null;
+        let recSeconds = 0;
+
+        async function toggleLiveRecording() {
+            const btn = document.getElementById('btnLiveRecord');
+            if (!isRecordingLive) {
+                try {
+                    const res = await fetch('/api/record/start', { method: 'POST' });
+                    const data = await res.json();
+                    isRecordingLive = true;
+                    recSeconds = 0;
+                    btn.classList.add('recording');
+                    btn.innerText = '⏹️ Stop Recording (00:00)';
+                    showToast('🔴 Recording Started! Click buttons, open apps & switch windows — DeskDriver is monitoring & indexing in the background.', 7000);
+
+                    recInterval = setInterval(async () => {
+                        recSeconds++;
+                        const m = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+                        const s = String(recSeconds % 60).padStart(2, '0');
+                        btn.innerText = `⏹️ Stop Recording (${m}:${s})`;
+
+                        if (recSeconds % 5 === 0) {
+                            try {
+                                const stRes = await fetch('/api/record/status');
+                                const stData = await stRes.json();
+                                if (stData.actions_count > 0) {
+                                    showToast(`🔴 Recording in progress: ${stData.actions_count} actions captured across ${stData.apps.length} apps...`, 3000);
+                                }
+                            } catch (_) {}
+                        }
+                    }, 1000);
+                } catch (e) {
+                    showToast('Error starting recording: ' + e);
+                }
+            } else {
+                clearInterval(recInterval);
+                btn.disabled = true;
+                btn.innerText = '⏳ Processing Session...';
+
+                try {
+                    const res = await fetch('/api/record/stop', { method: 'POST' });
+                    const data = await res.json();
+                    isRecordingLive = false;
+                    btn.classList.remove('recording');
+                    btn.innerText = '🔴 Record Session';
+                    btn.disabled = false;
+
+                    await fetchStats();
+                    showRecModal(data);
+                } catch (e) {
+                    showToast('Error stopping recording: ' + e);
+                    btn.disabled = false;
+                    btn.classList.remove('recording');
+                    btn.innerText = '🔴 Record Session';
+                    isRecordingLive = false;
+                }
+            }
+        }
+
+        function showRecModal(data) {
+            const modal = document.getElementById('recModal');
+            const stats = document.getElementById('recModalStats');
+            const pipeInp = document.getElementById('recModalPipeline');
+            if (!modal) return;
+
+            const pipeline = data.pipeline || '';
+            pipeInp.value = pipeline;
+
+            const appsList = (data.apps_visited || []).join(', ') || 'Desktop';
+            stats.innerHTML = `
+                <div style="background:#f8f9fa; border:1px solid #c8ccd1; padding:12px 16px; margin-bottom:12px; display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px;">
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Duration</span><div style="font-size:17px; font-weight:bold; color:#3366cc;">${data.duration_seconds}s</div></div>
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Actions Captured</span><div style="font-size:17px; font-weight:bold; color:#14866d;">${data.actions_count} steps</div></div>
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Apps Visited</span><div style="font-size:17px; font-weight:bold; color:#202122;">${(data.apps_visited || []).length} apps</div></div>
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">New Controls</span><div style="font-size:17px; font-weight:bold; color:#d33;">✨ ${data.new_controls_count || 0}</div></div>
+                </div>
+                <p style="margin-bottom:6px;"><strong>Apps Traverse Path:</strong> <code>${appsList}</code></p>
+                <p style="color:var(--text-muted); font-size:12.5px;">All newly discovered controls from this session have been automatically indexed into <code>ui_roadmap.json</code> and logged into <strong>📜 Scan History</strong>.</p>
+            `;
+
+            modal.style.display = 'flex';
+        }
+
+        function closeRecModal() {
+            const modal = document.getElementById('recModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function copyModalPipeline() {
+            const val = document.getElementById('recModalPipeline')?.value || '';
+            copyAndToast(val);
+        }
+
+        async function runModalPipeline() {
+            const val = document.getElementById('recModalPipeline')?.value || '';
+            if (!val) return;
+            closeRecModal();
+            showToast(`⚡ Executing recorded pipeline: <code>${val}</code>`, 6000);
+            try {
+                const res = await fetch('/api/run_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: val })
+                });
+                const d = await res.json();
+                showToast(`✅ Executed recorded pipeline (${d.steps_executed} steps)!`, 6000);
+            } catch (e) {
+                showToast('Execution error: ' + e);
+            }
+        }
+
+        async function saveModalPipelinePrompt() {
+            const val = document.getElementById('recModalPipeline')?.value || '';
+            if (!val) return;
+            const name = prompt('Enter a name for this recorded action pipeline:', 'My Recorded Workflow');
+            if (!name) return;
+            try {
+                await fetch('/api/save_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, action: val })
+                });
+                showToast(`💾 Saved recorded pipeline as '<strong>${name}</strong>'!`);
+                await fetchStats();
+                navigateTo('actions');
+            } catch (e) {
+                showToast('Save error: ' + e);
+            }
         }
 
         fetchStats();
@@ -1887,6 +2063,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     },
                     ensure_ascii=False,
                 ).encode("utf-8")
+            )
+        elif clean_path == "/api/record/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(am.get_recording_status(), ensure_ascii=False).encode("utf-8")
             )
         else:
             self.send_response(404)
@@ -2060,7 +2244,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             name = req_data.get("name", "")
             ok = am.delete_action(name)
-            self.wfile.write(json.dumps({"success": ok, "name": name}).encode("utf-8"))
+        elif clean_path == "/api/record/start":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            res = am.start_recording()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/record/stop":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            res = am.stop_recording()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()

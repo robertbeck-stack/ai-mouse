@@ -52,6 +52,12 @@ from deskdriver.automation.actions import (
     parse_action_string,
 )
 from deskdriver.navigation.tree import build_application_tree
+from deskdriver.automation.recorder import (
+    start_recording,
+    stop_recording,
+    get_recording_status,
+    recorder,
+)
 
 __version__ = "0.2.0"
 
@@ -103,5 +109,9 @@ __all__ = [
     "delete_action",
     "parse_action_string",
     "build_application_tree",
+    "start_recording",
+    "stop_recording",
+    "get_recording_status",
+    "recorder",
     "__version__",
 ]
