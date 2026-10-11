@@ -609,7 +609,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="wiki-brand" onclick="navigateTo('main')">
             <span class="wiki-globe">🌐</span>
             <div class="wiki-brand-text">
-                <h1>DESKDRIVER WIKIPEDIA</h1>
+                <h1>DESKDRIVER WIKIPEDIA <span style="font-size:11px; font-weight:600; background:#f0f2f5; color:#54595d; padding:2px 7px; border-radius:3px; vertical-align:middle; margin-left:6px; border:1px solid #c8ccd1; font-family:var(--sans);">v0.2.0</span></h1>
                 <p>The Free Desktop Automation Encyclopedia</p>
             </div>
         </div>
@@ -649,9 +649,10 @@ HTML_CONTENT = """<!DOCTYPE html>
             </div>
 
             <div class="sidebar-section">
-                <div class="sidebar-title">Community & Tools</div>
+                <div class="sidebar-title">Community & Version</div>
                 <ul class="sidebar-menu">
                     <li><a class="sidebar-item" href="https://github.com/robertbeck-stack/deskdriver" target="_blank"><span>📦 GitHub Repo</span></a></li>
+                    <li><div class="sidebar-item" style="cursor:default; color:#54595d;"><span>🏷️ Release: <strong>v0.2.0</strong></span></div></li>
                     <li><a class="sidebar-item" onclick="triggerSystemScan()"><span>⚡ System Scan</span></a></li>
                 </ul>
             </div>
@@ -1479,6 +1480,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             total_elements = sum(len(app.get("elements", {})) for app in roadmap_data.values())
 
             data = {
+                "version": getattr(am, "__version__", "0.2.0"),
                 "total_apps": len(roadmap_data),
                 "total_elements": total_elements,
                 "common_hotkeys": COMMON_HOTKEYS,
@@ -1696,8 +1698,9 @@ def run_dashboard(port: int | None = None, open_browser: bool = True):
     actual_port = port or find_available_port(PORT)
     server = ThreadingHTTPServer(("127.0.0.1", actual_port), DashboardHandler)
     url = f"http://localhost:{actual_port}"
+    version_str = getattr(am, "__version__", "0.2.0")
     print("=" * 65)
-    print("  [+] DESKDRIVER WIKIPEDIA IS RUNNING:")
+    print(f"  [+] DESKDRIVER WIKIPEDIA v{version_str} IS RUNNING:")
     print(f"  [>] Open in browser: {url}")
     print("  (Press Ctrl+C to terminate)")
     print("=" * 65)

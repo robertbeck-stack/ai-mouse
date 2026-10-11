@@ -89,4 +89,5 @@ __all__ = [
     "deep_dive_app",
     "execute_fastpath",
     "run_system_prelearn",
+    "__version__",
 ]
