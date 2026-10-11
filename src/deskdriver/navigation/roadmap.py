@@ -526,6 +526,10 @@ class UIRoadmap:
                     "last_seen": time.time(),
                     "misses": 0,
                 }
+                # Dropdown items only exist while their menu is open ("File" for "Save as")
+                menu_parent = el.get("menu_parent") or existing_el.get("menu_parent")
+                if menu_parent:
+                    self.map[app_key]["elements"][name]["menu_parent"] = menu_parent
                 seen.add(name)
 
             if complete and seen:
@@ -590,6 +594,7 @@ class UIRoadmap:
                 "name": matched["name"],
                 "control_type": matched["control_type"],
                 "shortcut": matched.get("shortcut", ""),
+                "menu_parent": matched.get("menu_parent", ""),
                 "center_x": abs_x,
                 "center_y": abs_y,
                 "source": "roadmap_cache",

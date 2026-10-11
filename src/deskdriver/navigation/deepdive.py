@@ -263,12 +263,107 @@ def extract_uia_control_meta(child) -> dict:
     return meta
 
 
+# Menu bars that belong to the window frame, not the app ("System": Restore, Move, Close)
+SKIPPED_MENU_BARS = {"system"}
+MENU_OPEN_DELAY = 0.45   # s for a dropdown to render after Expand()
+MENU_CLOSE_DELAY = 0.15
+
+
+def _menu_items(root) -> list:
+    """All MenuItem controls currently in a window's UIA tree."""
+    found = []
+
+    def walk(ctrl, depth=0):
+        if depth > 30:
+            return
+        try:
+            for child in ctrl.GetChildren():
+                if child.ControlTypeName == "MenuItemControl":
+                    found.append(child)
+                walk(child, depth + 1)
+        except Exception:
+            pass
+
+    walk(root)
+    return found
+
+
+def explore_menu_bar(hwnd: int) -> list[dict]:
+    """
+    Open each top-level menu of the window's menu bar with UI Automation
+    (ExpandCollapse, no mouse, nothing selected), read its items and their
+    keyboard accelerators, and close it again.
+
+    Returns element dicts (positions as shown while the menu is open) with
+    menu_parent set, so a click can open the parent menu first. Menus that UIA
+    can't expand (or apps without a UIA menu bar) give nothing.
+    """
+    root = auto.ControlFromHandle(hwnd)
+    if not root:
+        return []
+    top_items = []
+    for item in _menu_items(root):
+        try:
+            parent = item.GetParentControl()
+            if (parent and parent.ControlTypeName == "MenuBarControl"
+                    and (parent.Name or "").strip().lower() not in SKIPPED_MENU_BARS
+                    and item.GetExpandCollapsePattern()):
+                top_items.append(item)
+        except Exception:
+            continue
+
+    discovered = []
+    # Menu items present with every menu closed; whatever appears beyond these belongs to the open menu
+    before = {(m.Name or "").strip() for m in _menu_items(root)}
+    for top in top_items:
+        top_name = (top.Name or "").strip()
+        if not top_name:
+            continue
+        try:
+            pattern = top.GetExpandCollapsePattern()
+            pattern.Expand()
+            time.sleep(MENU_OPEN_DELAY)
+            try:
+                for item in _menu_items(root):
+                    name = (item.Name or "").strip()
+                    if not name or name in before:
+                        continue
+                    r = item.BoundingRectangle
+                    if r.right <= r.left or r.bottom <= r.top:
+                        continue
+                    clean, shortcut = extract_shortcut_from_name(name, (item.AcceleratorKey or "").strip())
+                    discovered.append({
+                        "name": clean,
+                        "control_type": "MenuItemControl",
+                        "shortcut": shortcut,
+                        "menu_parent": top_name,
+                        "container_path": f"menu:{top_name}",
+                        "automation_id": item.AutomationId or "",
+                        "class_name": item.ClassName or "",
+                        "help_text": "",
+                        "value": "",
+                        "toggle_state": None,
+                        "is_enabled": bool(item.IsEnabled),
+                        "ai_action": f"hotkey:{shortcut.lower()}" if shortcut else f"click:{top_name} | click:{clean}",
+                        "center_x": (r.left + r.right) // 2,
+                        "center_y": (r.top + r.bottom) // 2,
+                        "rect": {"left": r.left, "top": r.top, "width": r.right - r.left, "height": r.bottom - r.top},
+                    })
+            finally:
+                pattern.Collapse()
+                time.sleep(MENU_CLOSE_DELAY)
+        except Exception:
+            continue
+    return discovered
+
+
 def deep_dive_app(
     window_search: str = "",
     max_depth: int = 25,
     max_elements: int = 1000,
     hwnd: int | None = None,
     background: bool = False,
+    explore_menus: bool = True,
 ) -> dict:
     """
     Supercharged Deep Dive Engine:
@@ -277,7 +372,8 @@ def deep_dive_app(
 
     window_search may name the app ("notepad", "notepad.exe", "Settings") or part of a
     window title. hwnd targets an exact window instead. background=True is for scans
-    the user did not ask for (session recorder): no focus change, no beep.
+    the user did not ask for (session recorder): no focus change, no beep, and menus
+    are not opened. explore_menus opens each menu-bar menu to learn its items.
     """
     ensure_desktop()
     t0 = time.perf_counter()
@@ -397,6 +493,17 @@ def deep_dive_app(
             walk(ctrl)
     except Exception:
         pass
+
+    # 3b. Menu-bar dropdowns (File -> Save as Ctrl+Shift+S): opened via UIA, not the mouse
+    if explore_menus and not background:
+        try:
+            for mi in explore_menu_bar(hwnd):
+                k = mi["name"].lower()
+                if k not in seen_names:
+                    seen_names.add(k)
+                    all_discovered.append(mi)
+        except Exception:
+            pass
 
     # 4. Canvas / Game Engine Detection
     win_w = max(1, win_rect.get("right", 0) - win_rect.get("left", 0))

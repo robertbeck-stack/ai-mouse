@@ -144,3 +144,9 @@ def test_match_element_key_has_no_reverse_substring_hits():
     assert rm.match_element_key(els, "bookmark") == "bookmark this tab"
     assert rm.match_element_key(els, "save") == "save"
     assert rm.match_element_key({"ok": 1}, "bookmark") is None
+
+
+def test_dropdown_items_remember_their_menu(store):
+    store.learn_window("App", [el("Save as", menu_parent="File", shortcut="")], RECT)
+    hit = store.find_cached_element("App", "Save as", RECT)
+    assert hit["menu_parent"] == "File"

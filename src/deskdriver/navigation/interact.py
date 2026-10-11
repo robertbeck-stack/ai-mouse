@@ -107,6 +107,15 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
         # A known accelerator is faster and position-independent
         press_hotkey(cached["shortcut"])
         return {"status": "accelerator_hotkey_executed", "name": cached["name"], "shortcut": cached["shortcut"]}
+    if cached and cached.get("menu_parent"):
+        # A dropdown item: open its menu first ("File" before "Page setup")
+        opened = fast_click_element(cached["menu_parent"], window_search, instant=instant)
+        if "error" in opened:
+            return {"error": f"Could not open menu {cached['menu_parent']!r}: {opened['error']}"}
+        # Menus animate open; wait for the item rather than a fixed delay
+        deadline = time.time() + 1.5
+        while time.time() < deadline and not cached_target_present(cached):
+            time.sleep(0.1)
     if cached and not cached_target_present(cached):
         cached = None  # layout changed: rescan below (which re-learns the new position)
     if cached:

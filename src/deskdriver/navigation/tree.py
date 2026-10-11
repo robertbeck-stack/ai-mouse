@@ -227,8 +227,16 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
     window_branch = []
     other_branch = []
 
-    # Check for known sub-menus
+    # Menus learned by deep dive (explore_menu_bar) win over the built-in hierarchies,
+    # which only cover a few apps and are kept as a fallback for apps not scanned yet
+    learned_menus: dict[str, list[dict]] = {}
+    for el_data in cached_elements.values():
+        parent = el_data.get("menu_parent")
+        if parent:
+            learned_menus.setdefault(parent, []).append(
+                {"name": el_data.get("name", ""), "shortcut": el_data.get("shortcut", "")})
     std_menus = STANDARD_MENU_HIERARCHY.get(matched_app_key.split("/", 1)[0].lower(), {}) if "/" not in matched_app_key else {}
+    std_menus = {**std_menus, **learned_menus}
     populated_menus = set()
 
     # Build Menu Hierarchy from std_menus
@@ -262,8 +270,8 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
         sc = el_data.get("shortcut", "")
         nl = name.lower()
 
-        # If it's a top-level menu button we already expanded, skip duplicate
-        if nl in populated_menus:
+        # Top-level menus we already expanded, and their items, are in the menu folders
+        if nl in populated_menus or el_data.get("menu_parent"):
             continue
 
         item_entry = {

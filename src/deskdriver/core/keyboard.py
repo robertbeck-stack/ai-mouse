@@ -160,8 +160,22 @@ def press_hotkey(hotkey: str, delay: float = 0.05):
     using atomic Windows SendInput.
     """
     ensure_desktop()
+    # "Alt, F" / "Alt, T, P" (UIA access keys) are sequences, not chords: tap Alt,
+    # then F. Pressed together, the unknown "alt," part used to be dropped and only
+    # the letter was sent, typing it into the window.
+    if "," in hotkey:
+        steps = [s.strip() for s in hotkey.split(",") if s.strip()]
+        for i, step in enumerate(steps):
+            press_hotkey(step, delay=delay)
+            if i < len(steps) - 1:
+                time.sleep(0.08)
+        return
+
     parts = [p.strip() for p in hotkey.lower().replace("+", " ").split() if p.strip()]
     if not parts:
+        return
+    if any(_get_vk_code(p) == 0 for p in parts):
+        # An unknown key in a chord ("ctrl+ä"): sending the rest would be a different shortcut
         return
 
     vk_codes = [_get_vk_code(p) for p in parts if _get_vk_code(p) > 0]
