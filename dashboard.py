@@ -634,6 +634,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 <div class="sidebar-title">Navigation</div>
                 <ul class="sidebar-menu">
                     <li><a class="sidebar-item active" id="menu-main" onclick="navigateTo('main')"><span>🏠 Main Page</span></a></li>
+                    <li><a class="sidebar-item" id="menu-actions" onclick="navigateTo('actions')"><span>⚡ Action Pipelines</span> <span class="sidebar-badge" id="sideBadgeActions">4</span></a></li>
                     <li><a class="sidebar-item" id="menu-history" onclick="navigateTo('history')"><span>📜 Scan History</span> <span class="sidebar-badge" id="sideBadgeScans">0</span></a></li>
                     <li><a class="sidebar-item" id="menu-hotkeys" onclick="navigateTo('hotkeys')"><span>⌨️ Universal Hotkeys</span> <span class="sidebar-badge" id="sideBadgeHotkeys">31</span></a></li>
                     <li><a class="sidebar-item" id="menu-fastpaths" onclick="navigateTo('fastpaths')"><span>⚡ OS Fastpaths</span> <span class="sidebar-badge" id="sideBadgeFastpaths">33</span></a></li>
@@ -704,6 +705,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             // Update active menu state
             document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
             if (view === 'main') document.getElementById('menu-main')?.classList.add('active');
+            else if (view === 'actions') document.getElementById('menu-actions')?.classList.add('active');
             else if (view === 'history') document.getElementById('menu-history')?.classList.add('active');
             else if (view === 'hotkeys') document.getElementById('menu-hotkeys')?.classList.add('active');
             else if (view === 'fastpaths') document.getElementById('menu-fastpaths')?.classList.add('active');
@@ -740,9 +742,11 @@ HTML_CONTENT = """<!DOCTYPE html>
             const badgeHk = document.getElementById('sideBadgeHotkeys');
             const badgeFp = document.getElementById('sideBadgeFastpaths');
             const badgeScans = document.getElementById('sideBadgeScans');
+            const badgeAct = document.getElementById('sideBadgeActions');
             if (badgeHk) badgeHk.innerText = hkCount;
             if (badgeFp) badgeFp.innerText = fpCount;
             if (badgeScans) badgeScans.innerText = scanCount;
+            if (badgeAct && data.total_actions !== undefined) badgeAct.innerText = data.total_actions;
         }
 
         function getLastScanBannerHtml(data) {
@@ -766,6 +770,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             const container = document.getElementById('wikiArticle');
 
             if (currentView === 'main') renderMainPage(container);
+            else if (currentView === 'actions') renderActionsPage(container);
             else if (currentView === 'history') renderHistoryPage(container);
             else if (currentView === 'app') renderAppPage(container, currentApp);
             else if (currentView === 'hotkeys') renderHotkeysPage(container);
@@ -1170,7 +1175,179 @@ HTML_CONTENT = """<!DOCTYPE html>
             `;
         }
 
-        /* 5. TESTER & CONTROLS PAGE */
+        /* 5. ACTION PIPELINES & MACROS PAGE */
+        async function renderActionsPage(container) {
+            container.innerHTML = `
+                <div class="article-header">
+                    <h1 class="article-title">⚡ Desktop Action Pipelines & Macros</h1>
+                    <div class="article-tagline">Chained sequences of desktop actions executed at zero AI token cost. Run, save, or test custom action strings.</div>
+                </div>
+
+                <div class="hatnote">
+                    <strong>Action String Syntax:</strong> Chain multiple actions using <code>|</code> or <code>-&gt;</code>.<br>
+                    Commands supported: <code>open:&lt;app&gt;</code>, <code>focus:&lt;win&gt;</code>, <code>click:&lt;element or x,y&gt;</code>, <code>type:&lt;text&gt;</code>, <code>fill:&lt;field&gt;, &lt;text&gt;</code>, <code>key:&lt;hotkey&gt;</code>, <code>wait:&lt;seconds&gt;</code>, <code>snap:&lt;left|right&gt;</code>.
+                </div>
+
+                <!-- PIPELINE RUNNER & CREATOR -->
+                <div style="background: var(--surface); border: 1px solid var(--border); padding: 18px 20px; margin: 18px 0;">
+                    <h3 style="font-family: var(--serif); font-size: 16px; margin-bottom: 8px;">▶ Custom Pipeline Console</h3>
+                    <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px;">Type or paste any action string below to test live execution on your Windows desktop:</p>
+                    <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                        <input type="text" id="customActionInput" class="wiki-search-input" style="flex: 1; padding: 8px 12px; font-family: monospace; font-size: 13px;" placeholder="e.g. open:notepad | wait:0.3 | hotkey:ctrl+n | type:Halló heimur | key:enter" value="open:notepad | wait:0.4 | hotkey:ctrl+n | type:Halló heimur | key:enter">
+                        <button class="btn-wiki btn-wiki-primary" onclick="runCustomAction()" id="btnRunCustom">⚡ Execute</button>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" id="customActionName" class="wiki-search-input" style="max-width: 240px; padding: 6px 10px; font-size: 12.5px;" placeholder="Macro name (e.g. minnisblad)...">
+                        <button class="btn-wiki" onclick="saveCustomAction()">💾 Save as Named Macro</button>
+                    </div>
+                </div>
+
+                <!-- SAVED ACTIONS LIST -->
+                <h2 class="wiki-h2">Saved Reusable Action Pipelines</h2>
+                <div id="savedActionsContainer" style="margin-top: 12px;">
+                    <p style="color: var(--text-muted); font-size: 13px;">Loading saved action pipelines...</p>
+                </div>
+            `;
+
+            loadSavedActionsList();
+        }
+
+        async function loadSavedActionsList() {
+            const container = document.getElementById('savedActionsContainer');
+            if (!container) return;
+            try {
+                const res = await fetch('/api/actions');
+                const data = await res.json();
+                const actions = data.actions || {};
+                const keys = Object.keys(actions);
+
+                if (keys.length === 0) {
+                    container.innerHTML = '<p style="color: var(--text-muted);">No saved action pipelines yet.</p>';
+                    return;
+                }
+
+                let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                for (const name of keys) {
+                    const actStr = actions[name];
+                    const steps = actStr.split(/\\s*(?:\\||->|;)\\s*/).filter(Boolean);
+                    const stepsChips = steps.map(s => `<span class="item-chip" style="background:#f0f2f5; font-family:monospace;">${s}</span>`).join(' <span style="color:#a2a9b1;">&rarr;</span> ');
+                    html += `
+                        <div style="background: #ffffff; border: 1px solid var(--border); padding: 14px 16px; border-radius: 2px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 15px;">⚡</span>
+                                    <strong style="font-size: 14px; font-family: var(--serif);">${name}</strong>
+                                    <span style="font-size: 11px; color: var(--text-muted);">(${steps.length} steps)</span>
+                                </div>
+                                <div style="display: flex; gap: 6px;">
+                                    <button class="btn-wiki btn-wiki-primary" style="font-size: 12px; padding: 4px 10px;" onclick="runSavedAction('${name}')">▶ Run</button>
+                                    <button class="btn-wiki" style="font-size: 12px; padding: 4px 8px; color: #d33;" onclick="deleteSavedAction('${name}')">🗑️</button>
+                                </div>
+                            </div>
+                            <div style="margin-top: 6px; font-size: 12px;">${stepsChips}</div>
+                        </div>
+                    `;
+                }
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = `<p style="color: #d33;">Error loading actions: ${e}</p>`;
+            }
+        }
+
+        async function runCustomAction() {
+            const input = document.getElementById('customActionInput');
+            const btn = document.getElementById('btnRunCustom');
+            const actStr = input ? input.value.trim() : '';
+            if (!actStr) return alert('Please enter an action string to run.');
+
+            if (btn) { btn.disabled = true; btn.innerText = '⏳ Running...'; }
+            showToast(`⚡ Running action pipeline...`, 4000);
+
+            try {
+                const res = await fetch('/api/run_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: actStr })
+                });
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    showToast(`✅ Executed ${data.steps_executed} steps in ${data.duration_seconds}s!`, 6000);
+                } else {
+                    showToast(`Pipeline: ${data.error || 'Execution finished'}`, 6000);
+                }
+                await fetchStats();
+            } catch (e) {
+                showToast(`Action error: ${e}`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = '⚡ Execute'; }
+            }
+        }
+
+        async function saveCustomAction() {
+            const nameInput = document.getElementById('customActionName');
+            const strInput = document.getElementById('customActionInput');
+            const name = nameInput ? nameInput.value.trim() : '';
+            const actStr = strInput ? strInput.value.trim() : '';
+            if (!name || !actStr) return alert('Please enter both a macro name and an action string.');
+
+            try {
+                const res = await fetch('/api/save_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, action: actStr })
+                });
+                const data = await res.json();
+                if (data.status === 'saved') {
+                    showToast(`💾 Saved action pipeline '${name}'!`);
+                    nameInput.value = '';
+                    loadSavedActionsList();
+                    await fetchStats();
+                } else {
+                    showToast(`Error saving: ${data.error || 'unknown'}`);
+                }
+            } catch (e) {
+                showToast(`Error: ${e}`);
+            }
+        }
+
+        async function runSavedAction(name) {
+            showToast(`⚡ Running '${name}'...`, 4000);
+            try {
+                const res = await fetch('/api/run_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    showToast(`✅ '${name}' completed: ${data.steps_executed} steps in ${data.duration_seconds}s!`, 6000);
+                } else {
+                    showToast(`Pipeline: ${data.error || 'finished'}`);
+                }
+                await fetchStats();
+            } catch (e) {
+                showToast(`Error: ${e}`);
+            }
+        }
+
+        async function deleteSavedAction(name) {
+            if (!confirm(`Delete action '${name}'?`)) return;
+            try {
+                await fetch('/api/delete_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                showToast(`Deleted action '${name}'.`);
+                loadSavedActionsList();
+                await fetchStats();
+            } catch (e) {
+                showToast(`Error: ${e}`);
+            }
+        }
+
+        /* 6. TESTER & CONTROLS PAGE */
         function renderTesterPage(container) {
             container.innerHTML = `
                 <div class="article-header">
@@ -1495,6 +1672,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "version": getattr(am, "__version__", "0.2.0"),
                 "total_apps": len(roadmap_data),
                 "total_elements": total_elements,
+                "total_actions": len(am.load_saved_actions()),
                 "common_hotkeys": COMMON_HOTKEYS,
                 "fastpaths": FASTPATHS,
                 "roadmap": roadmap_data,
@@ -1503,6 +1681,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "total_scans": len(SCAN_LOGS),
             }
             self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        elif clean_path == "/api/actions":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"actions": am.load_saved_actions()}, ensure_ascii=False).encode("utf-8"))
         elif clean_path == "/api/logs":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1697,6 +1881,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
             text = req_data.get("text", "")
             ok = am.clipboard_paste(text) if text else False
             self.wfile.write(json.dumps({"success": ok, "length": len(text)}).encode("utf-8"))
+
+        elif clean_path == "/api/run_action":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            act_str = req_data.get("action", "")
+            act_name = req_data.get("name", "")
+            if not act_str and act_name:
+                actions = am.load_saved_actions()
+                act_str = actions.get(act_name, "")
+
+            res = am.execute_action(act_str)
+            steps_list = [s.get("action") for s in res.get("steps", []) if s.get("action")]
+            add_scan_log(
+                action="Pipeline",
+                app=act_name or "Action Pipeline",
+                summary=f"Executed {res.get('steps_executed', 0)} steps: {act_str[:60]}",
+                count=res.get("steps_executed", 0),
+                items=steps_list,
+                duration=res.get("duration_seconds", 0.0),
+            )
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/save_action":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            name = req_data.get("name", "")
+            action_code = req_data.get("action", "")
+            res = am.save_action(name, action_code)
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+
+        elif clean_path == "/api/delete_action":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            name = req_data.get("name", "")
+            ok = am.delete_action(name)
+            self.wfile.write(json.dumps({"success": ok, "name": name}).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()

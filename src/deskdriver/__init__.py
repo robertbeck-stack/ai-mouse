@@ -44,6 +44,13 @@ from deskdriver.navigation.roadmap import (
 from deskdriver.navigation.deepdive import deep_dive_app
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.prelearn import run_system_prelearn
+from deskdriver.automation.actions import (
+    execute_action,
+    save_action,
+    load_saved_actions,
+    delete_action,
+    parse_action_string,
+)
 
 __version__ = "0.2.0"
 
@@ -89,5 +96,10 @@ __all__ = [
     "deep_dive_app",
     "execute_fastpath",
     "run_system_prelearn",
+    "execute_action",
+    "save_action",
+    "load_saved_actions",
+    "delete_action",
+    "parse_action_string",
     "__version__",
 ]

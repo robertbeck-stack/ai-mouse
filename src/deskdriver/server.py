@@ -298,6 +298,33 @@ def wait_and_click(element_name: str, window_search: str = "", timeout: float = 
     return am.wait_and_click(element_name, window_search=window_search, timeout=timeout, instant=instant)
 
 
+@server.tool()
+def execute_action(action: str) -> dict:
+    """
+    Execute a multi-step desktop workflow serialized as a single string.
+    Format: "open:notepad | type:Hello | hotkey:ctrl+s | fill:File name:, mynote.txt | key:enter"
+    Supports: open, focus, click, doubleclick, rightclick, type, fill, key/hotkey, drag, wait, snap.
+    Zero-token execution for full automated sequences!
+    """
+    return am.execute_action(action)
+
+
+@server.tool()
+def save_action(name: str, action: str) -> dict:
+    """
+    Save or update a named reusable action pipeline string into saved_actions.json.
+    """
+    return am.save_action(name, action)
+
+
+@server.tool()
+def list_saved_actions() -> dict:
+    """
+    List all saved reusable desktop action pipelines.
+    """
+    return {"actions": am.load_saved_actions()}
+
+
 def main():
     server.run()
 

@@ -262,6 +262,36 @@ def test_dashboard_scan_logging():
     print(f" -> Dashboard scan logging active (latest: {dashboard.SCAN_LOGS[0]['summary']}, new: {dashboard.SCAN_LOGS[0]['new_count']})")
 
 
+def test_action_pipeline():
+    print("Testing action pipeline engine...")
+    test_str = "open:notepad | wait:0.02 | hotkey:ctrl+n | type:test | snap:left"
+    steps = dd.parse_action_string(test_str)
+    assert len(steps) == 5
+    assert steps[0]["verb"] == "open"
+    assert steps[0]["arg"] == "notepad"
+    assert steps[1]["verb"] == "wait"
+    assert steps[2]["verb"] == "hotkey"
+    assert steps[3]["verb"] == "type"
+    assert steps[4]["verb"] == "snap"
+
+    # Test saving & loading actions
+    save_res = dd.save_action("unit_test_action", "wait:0.01 | wait:0.02")
+    assert save_res["status"] == "saved"
+    actions = dd.load_saved_actions()
+    assert "unit_test_action" in actions
+    assert actions["unit_test_action"] == "wait:0.01 | wait:0.02"
+
+    # Test execution of safe string
+    exec_res = dd.execute_action("wait:0.01 | wait:0.01", interval=0.0)
+    assert exec_res["status"] == "completed"
+    assert exec_res["steps_count"] == 2
+    assert exec_res["steps_executed"] == 2
+
+    # Clean up
+    assert dd.delete_action("unit_test_action") is True
+    print(f" -> Action pipeline verified: parsing, storage, and execution OK ({exec_res['steps_count']} steps in {exec_res['duration_seconds']}s)")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -281,6 +311,7 @@ def run_all():
     test_auto_record()
     test_deep_dive()
     test_dashboard_scan_logging()
+    test_action_pipeline()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

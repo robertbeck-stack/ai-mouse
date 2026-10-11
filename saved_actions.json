@@ -1,0 +1,6 @@
+{
+  "quick_note": "open:notepad | wait:0.4 | hotkey:ctrl+n | type:DeskDriver Action Pipeline | key:enter",
+  "open_display_settings": "open:display | wait:0.5",
+  "system_info": "open:about | wait:0.5",
+  "open_calc": "open:calc | wait:0.5 | type:500*1.24 | key:enter"
+}
