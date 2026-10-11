@@ -936,6 +936,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <li class="toc-item"><a class="toc-link" href="#sec-overview">1 Overview</a></li>
                         <li class="toc-item"><a class="toc-link" href="#sec-shortcuts">2 Keyboard Accelerators (${hotkeyElements.length})</a></li>
                         <li class="toc-item"><a class="toc-link" href="#sec-controls">3 Spatial UI Elements (${elements.length})</a></li>
+                        <li class="toc-item"><a class="toc-link" href="#sec-tree">4 Dynamic Hierarchy Tree & Action Chains</a></li>
                     </ul>
                 </div>
 
@@ -965,7 +966,131 @@ HTML_CONTENT = """<!DOCTYPE html>
                         ${elRows || '<tr><td colspan="5" style="color: var(--text-muted);">No controls indexed yet.</td></tr>'}
                     </tbody>
                 </table>
+
+                <h2 class="wiki-h2" id="sec-tree">4 Dynamic Hierarchy Tree & Action Chains</h2>
+                <p style="color: var(--text-muted); margin-bottom: 12px;">
+                    Expandable semantic tree showing what controls exist under each menu, toolbar, and container, with ready-to-run action chains:
+                </p>
+                <div id="appTreeContainer" style="margin-top: 12px;">
+                    <p style="color: var(--text-muted); font-size: 13px;">Loading hierarchy tree...</p>
+                </div>
             `;
+
+            loadAppTree(appKey);
+        }
+
+        async function loadAppTree(appKey) {
+            const container = document.getElementById('appTreeContainer');
+            if (!container) return;
+
+            try {
+                const res = await fetch(`/api/app_tree?app=${encodeURIComponent(appKey)}`);
+                const data = await res.json();
+                const branches = data.tree || [];
+
+                if (branches.length === 0) {
+                    container.innerHTML = '<p style="color: var(--text-muted);">No hierarchy tree mapped for this application yet.</p>';
+                    return;
+                }
+
+                let html = '<div style="display: flex; flex-direction: column; gap: 14px;">';
+
+                for (const branch of branches) {
+                    html += `
+                        <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
+                            <div style="background: #f8f9fa; border-bottom: 1px solid var(--border-light); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong style="font-size: 14px; font-family: var(--serif);">${branch.name}</strong>
+                                    <span style="font-size: 11.5px; color: var(--text-muted); margin-left: 8px;">(${branch.count || 0} controls)</span>
+                                </div>
+                                <span style="font-size: 11px; color: var(--text-muted);">${branch.description || ''}</span>
+                            </div>
+                            <div style="padding: 12px 14px;">
+                    `;
+
+                    if (branch.sub_branches && branch.sub_branches.length > 0) {
+                        for (const sub of branch.sub_branches) {
+                            html += `
+                                <details open style="margin-bottom: 10px; border: 1px solid #eaecf0; border-radius: 2px; padding: 6px 10px; background: #fafbfc;">
+                                    <summary style="font-weight: bold; cursor: pointer; color: var(--primary); font-size: 13px; padding: 4px 0;">
+                                        📁 ${sub.name} <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(${sub.count || (sub.children || []).length} options)</span>
+                                    </summary>
+                                    <div style="margin-top: 8px; padding-left: 14px; border-left: 2px solid #c8ccd1;">
+                            `;
+                            for (const item of (sub.children || [])) {
+                                const scBadge = item.shortcut ? `<kbd class="kbd-cap">${item.shortcut}</kbd>` : '';
+                                html += `
+                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dotted #eaecf0; font-size: 12.5px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span style="color: #54595d;">↳</span>
+                                            <strong>${item.name}</strong>
+                                            ${scBadge}
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <code style="font-size: 11px; background: #f0f2f5; padding: 2px 6px;">${item.action_chain || ''}</code>
+                                            <button class="btn-wiki btn-wiki-primary" style="font-size: 11px; padding: 2px 8px;" onclick="runCustomActionString('${item.action_chain || ''}')">▶ Run</button>
+                                            <button class="btn-wiki" style="font-size: 11px; padding: 2px 6px;" onclick="copyToClipboard('${item.action_chain || ''}')" title="Copy action string">📋</button>
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                            html += `</div></details>`;
+                        }
+                    } else if (branch.children && branch.children.length > 0) {
+                        for (const item of branch.children) {
+                            const scBadge = item.shortcut ? `<kbd class="kbd-cap">${item.shortcut}</kbd>` : '';
+                            html += `
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dotted #eaecf0; font-size: 12.5px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="color: #54595d;">•</span>
+                                        <strong>${item.name}</strong>
+                                        <span style="font-size: 11px; color: var(--text-muted);">(${item.control_type || ''})</span>
+                                        ${scBadge}
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <code style="font-size: 11px; background: #f0f2f5; padding: 2px 6px;">${item.action_chain || ''}</code>
+                                        <button class="btn-wiki btn-wiki-primary" style="font-size: 11px; padding: 2px 8px;" onclick="runCustomActionString('${item.action_chain || ''}')">▶ Run</button>
+                                        <button class="btn-wiki" style="font-size: 11px; padding: 2px 6px;" onclick="copyToClipboard('${item.action_chain || ''}')" title="Copy action string">📋</button>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    html += `</div></div>`;
+                }
+
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = `<p style="color: #d33;">Error loading tree: ${e}</p>`;
+            }
+        }
+
+        async function runCustomActionString(actStr) {
+            if (!actStr) return;
+            showToast(`⚡ Running action chain: ${actStr}...`, 3000);
+            try {
+                const res = await fetch('/api/run_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: actStr })
+                });
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    showToast(`✅ Executed chain '${actStr}' (${data.duration_seconds}s)!`, 5000);
+                } else {
+                    showToast(`Chain: ${data.error || 'finished'}`);
+                }
+            } catch (e) {
+                showToast(`Error: ${e}`);
+            }
+        }
+
+        function copyToClipboard(txt) {
+            navigator.clipboard.writeText(txt).then(() => {
+                showToast(`📋 Copied to clipboard: ${txt}`, 3000);
+            });
         }
 
         /* 3. SCAN & REVISION HISTORY PAGE */
@@ -1687,6 +1812,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"actions": am.load_saved_actions()}, ensure_ascii=False).encode("utf-8"))
+        elif clean_path == "/api/app_tree":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            query = ""
+            if "?" in self.path:
+                from urllib.parse import parse_qs, urlparse
+                qs = parse_qs(urlparse(self.path).query)
+                query = qs.get("app", [""])[0]
+
+            tree_data = am.build_application_tree(query)
+            self.wfile.write(json.dumps(tree_data, ensure_ascii=False).encode("utf-8"))
         elif clean_path == "/api/logs":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

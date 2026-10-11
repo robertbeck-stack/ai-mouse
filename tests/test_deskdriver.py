@@ -292,6 +292,35 @@ def test_action_pipeline():
     print(f" -> Action pipeline verified: parsing, storage, and execution OK ({exec_res['steps_count']} steps in {exec_res['duration_seconds']}s)")
 
 
+def test_application_tree():
+    print("Testing dynamic application hierarchy & tree mapping...")
+    # 1. OS Settings Tree
+    settings_tree = dd.build_application_tree("settings")
+    assert settings_tree["is_settings"] is True
+    assert settings_tree["total_categories"] >= 5
+    assert len(settings_tree["tree"]) >= 5
+    assert "System" in [b["name"] for b in settings_tree["tree"]]
+    # Verify pre-computed action chain
+    first_cat = settings_tree["tree"][0]
+    assert len(first_cat["children"]) > 0
+    assert "action_chain" in first_cat["children"][0]
+    assert first_cat["children"][0]["action_chain"].startswith("open:")
+
+    # 2. Notepad Tree
+    np_tree = dd.build_application_tree("notepad")
+    assert np_tree["app"] == "notepad"
+    assert np_tree["total_branches"] > 0
+    assert len(np_tree["tree"]) > 0
+    # Check that Menu Bar exists
+    menu_branch = next((b for b in np_tree["tree"] if "Menu" in b["name"]), None)
+    assert menu_branch is not None
+    assert len(menu_branch.get("sub_branches", [])) > 0
+    file_sub = menu_branch["sub_branches"][0]
+    assert "children" in file_sub and len(file_sub["children"]) > 0
+    assert "action_chain" in file_sub["children"][0]
+    print(f" -> Dynamic tree hierarchy verified: Settings ({settings_tree['total_items']} options) & Notepad ({np_tree['total_controls']} controls mapped)")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -312,6 +341,7 @@ def run_all():
     test_deep_dive()
     test_dashboard_scan_logging()
     test_action_pipeline()
+    test_application_tree()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

@@ -325,6 +325,16 @@ def list_saved_actions() -> dict:
     return {"actions": am.load_saved_actions()}
 
 
+@server.tool()
+def get_application_tree(application: str) -> dict:
+    """
+    Build dynamic parent-child navigation tree for an application or Windows Settings.
+    Returns nested menu branches, command paths, and pre-computed action chains
+    (e.g. click:File -> click:Save As...) so AI can dynamically navigate and execute.
+    """
+    return am.build_application_tree(application)
+
+
 def main():
     server.run()
 

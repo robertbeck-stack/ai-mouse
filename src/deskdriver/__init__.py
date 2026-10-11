@@ -51,6 +51,7 @@ from deskdriver.automation.actions import (
     delete_action,
     parse_action_string,
 )
+from deskdriver.navigation.tree import build_application_tree
 
 __version__ = "0.2.0"
 
@@ -101,5 +102,6 @@ __all__ = [
     "load_saved_actions",
     "delete_action",
     "parse_action_string",
+    "build_application_tree",
     "__version__",
 ]
