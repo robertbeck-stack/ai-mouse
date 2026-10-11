@@ -515,6 +515,27 @@ def test_review_regressions():
                                  "container_path": "id:12320"}, "explorer.exe")
         assert redact_secrets("key sk-ant-api03-abc_DEF-1 here") == "key [REDACTED] here"
 
+        # Accelerators in names and coordinate-tagged unnamed controls
+        from deskdriver.navigation.element_filter import normalize_name
+        assert normalize_name("Media Alt+M", 32, 41) == ("Media", "Alt+M")
+        assert normalize_name("Playback Alt+l", 88, 41) == ("Playback", "Alt+L")
+        assert normalize_name("Bold (Ctrl+B)", 0, 0) == ("Bold (Ctrl+B)", "")
+        assert normalize_name("unnamed_buttoncontrol_477_1204", 62, 985) == ("button @ 62,985", "")
+        assert normalize_name("unnamed_splitbuttoncontrol_902_732", 487, 513) == ("splitbutton @ 487,513", "")
+        q = rm.UIRoadmap(directory=d, legacy_file=None)
+        q.learn_window("Qt App", [el("Media Alt+M"), el("unnamed_buttoncontrol_900_900")], rect)
+        qe = q.map["Qt App"]["elements"]
+        assert qe["media"]["shortcut"] == "Alt+M" and qe["media"]["ai_action"] == "hotkey:alt+m"
+        assert "button @ 5,5" in qe and not any(k.startswith("unnamed_") for k in qe)
+        qe["view alt+i"] = {"name": "View Alt+i", "rel_x": 1, "rel_y": 1, "ai_action": "click:View Alt+i"}
+        assert q.normalize_names() == {"Qt App": 1} and qe["view"]["ai_action"] == "hotkey:alt+i"
+
+        # Minimized / zero-size window rects would store screen coordinates: nothing is learned
+        q.learn_window("Qt App", [el("From Zero Rect")], {"left": 0, "top": 0, "right": 0, "bottom": 0})
+        q.learn_window("Qt App", [el("From Minimized")], {"left": -32000, "top": -32000, "right": -31840, "bottom": -31972})
+        q.learn_window("Never Seen", [el("X")], {"left": 0, "top": 0, "right": 0, "bottom": 0})
+        assert "from zero rect" not in qe and "from minimized" not in qe and "Never Seen" not in q.map
+
         a.learn_window("notepad.exe", [el("Save"), {**el("todo.txt. Modified."), "control_type": "TabItemControl"}], rect)
         assert "save" in a.map["notepad.exe"]["elements"]
         assert not any("todo" in k for k in a.map["notepad.exe"]["elements"])

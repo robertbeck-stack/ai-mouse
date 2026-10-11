@@ -1,5 +1,5 @@
 """
-Which scanned elements are worth caching in the roadmap.
+Which scanned elements are worth caching in the roadmap, and under what name.
 
 The roadmap stores controls at fixed window-relative positions, so it should only
 hold an app's own UI. Two kinds of elements don't fit:
@@ -70,3 +70,29 @@ def is_transient(element: dict, exe: str = "") -> bool:
     if (exe or "").lower() in BROWSER_EXES and ct in BROWSER_CONTENT_TYPES:
         return True
     return False
+
+
+# "Media Alt+M", "Playback Alt+l" (Qt menus put the accelerator in the name)
+ACCELERATOR_SUFFIX = re.compile(r"^(.*?\S)\s+((?:ctrl|alt|shift|win)(?:\+[^\s+]+)+)$", re.I)
+
+# Names uia.get_element_name() invents for controls without a name / id / help text.
+# They embed *screen* coordinates, so they change whenever the window moves.
+UNNAMED = re.compile(r"^unnamed_([a-z]+?)(?:control)?_-?\d+_-?\d+$")
+
+
+def normalize_name(name: str, rel_x: int, rel_y: int) -> tuple[str, str]:
+    """
+    (display name, shortcut) to cache an element under:
+      "Media Alt+M"                         -> ("Media", "Alt+M")
+      "unnamed_buttoncontrol_477_1204"      -> ("button @ 62,985", "")   window-relative
+    """
+    name = (name or "").strip()
+    m = UNNAMED.match(name)
+    if m:
+        return f"{m.group(1)} @ {rel_x},{rel_y}", ""
+    m = ACCELERATOR_SUFFIX.match(name)
+    if m:
+        keys = m.group(2).split("+")
+        shortcut = "+".join(k.capitalize() if len(k) > 1 else k.upper() for k in keys)
+        return m.group(1), shortcut
+    return name, ""

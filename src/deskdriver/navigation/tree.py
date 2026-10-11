@@ -117,6 +117,58 @@ STANDARD_MENU_HIERARCHY = {
             {"name": "Gridlines", "shortcut": "Ctrl+G"},
         ],
     },
+    "vlc.exe": {
+        "Media": [
+            {"name": "Open File...", "shortcut": "Ctrl+O"},
+            {"name": "Open Multiple Files...", "shortcut": "Ctrl+Shift+O"},
+            {"name": "Open Folder...", "shortcut": "Ctrl+F"},
+            {"name": "Open Disc...", "shortcut": "Ctrl+D"},
+            {"name": "Open Network Stream...", "shortcut": "Ctrl+N"},
+            {"name": "Open Capture Device...", "shortcut": "Ctrl+C"},
+            {"name": "Open Location from clipboard", "shortcut": "Ctrl+V"},
+            {"name": "Save Playlist to File...", "shortcut": "Ctrl+Y"},
+            {"name": "Convert / Save...", "shortcut": "Ctrl+R"},
+            {"name": "Stream...", "shortcut": "Ctrl+S"},
+            {"name": "Quit", "shortcut": "Ctrl+Q"},
+        ],
+        "Playback": [
+            {"name": "Play/Pause", "shortcut": "Space"},
+            {"name": "Stop", "shortcut": "S"},
+            {"name": "Previous", "shortcut": "P"},
+            {"name": "Next", "shortcut": "N"},
+            {"name": "Jump to Specific Time", "shortcut": "Ctrl+T"},
+            {"name": "Record", "shortcut": "Shift+R"},
+        ],
+        "Audio": [
+            {"name": "Increase Volume", "shortcut": "Ctrl+Up"},
+            {"name": "Decrease Volume", "shortcut": "Ctrl+Down"},
+            {"name": "Mute", "shortcut": "M"},
+        ],
+        "Video": [
+            {"name": "Fullscreen", "shortcut": "F"},
+            {"name": "Take Snapshot", "shortcut": "Shift+S"},
+        ],
+        "Subtitle": [
+            {"name": "Add Subtitle File...", "shortcut": ""},
+            {"name": "Next Subtitle Track", "shortcut": "V"},
+        ],
+        "Tools": [
+            {"name": "Effects and Filters", "shortcut": "Ctrl+E"},
+            {"name": "Media Information", "shortcut": "Ctrl+I"},
+            {"name": "Codec Information", "shortcut": "Ctrl+J"},
+            {"name": "Messages", "shortcut": "Ctrl+M"},
+            {"name": "Preferences", "shortcut": "Ctrl+P"},
+        ],
+        "View": [
+            {"name": "Playlist", "shortcut": "Ctrl+L"},
+            {"name": "Minimal Interface", "shortcut": "Ctrl+H"},
+            {"name": "Fullscreen Interface", "shortcut": "F11"},
+        ],
+        "Help": [
+            {"name": "Help", "shortcut": "F1"},
+            {"name": "About", "shortcut": "Shift+F1"},
+        ],
+    },
 }
 
 

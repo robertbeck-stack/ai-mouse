@@ -10,7 +10,7 @@ import time
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.core.keyboard import press_hotkey, type_text, COMMON_HOTKEYS
 from deskdriver.core.mouse import move_and_click, mouse_click, get_mouse_position, user32
-from deskdriver.automation.windows import list_windows, focus_window, window_at
+from deskdriver.automation.windows import list_windows, focus_window, window_at, window_info
 from deskdriver.automation.uia import inspect_at, scan_clickable_elements
 from deskdriver.automation.appid import identify_window, find_app_window
 from deskdriver.navigation.fastpaths import execute_fastpath
@@ -37,9 +37,12 @@ def list_clickable_elements(
         win = find_app_window(window_search, list_windows())
         hwnd = win["hwnd"] if win else None
     elements, window = scan_clickable_elements(window_search, max_elements, hwnd=hwnd)
-    if elements and window and window.get("hwnd"):
+    # Prefer the window we asked for and its Win32 rect: UIA's top-level control can
+    # report a bogus (even zero-size) rectangle for Qt apps such as VLC.
+    target = hwnd or (window or {}).get("hwnd")
+    if elements and target:
         try:
-            roadmap.learn_window(identify_window(window["hwnd"]), elements=elements, window_rect=window["rect"])
+            roadmap.learn_window(identify_window(target), elements=elements, window_rect=window_info(target)["rect"])
         except Exception:
             pass
     return elements

@@ -548,11 +548,18 @@ HTML_CONTENT = """<!DOCTYPE html>
             color: #54595d;
             font-size: 11.5px;
         }
-        details.tree-section > summary {
+        .tree-folder {
+            margin-bottom: 8px;
+        }
+        .tree-folder > summary {
             cursor: pointer;
+            font-weight: bold;
             color: var(--primary);
             font-size: 13px;
-            margin-bottom: 10px;
+            padding: 3px 0;
+        }
+        .tree-folder .compact-table {
+            margin: 4px 0 6px;
         }
 
         /* APP CARDS GRID */
@@ -1059,6 +1066,8 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
 
             const ANCHOR_MARK = { rb: ' ↘', r: ' →', b: ' ↓' };
+            // Run focuses the app first (dialogs: their owner) so the recipe hits the right window
+            const focusKey = ownerKey || appKey;
             let elRows = '';
             for (const el of ctrlElements) {
                 const anchor = el.anchor_right && el.anchor_bottom ? 'rb' : el.anchor_right ? 'r' : el.anchor_bottom ? 'b' : '';
@@ -1073,6 +1082,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <td class="ctrl-type">${esc(shortType)}</td>
                         <td><code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(actionCode)})">${esc(actionCode)}</code></td>
                         <td class="ctrl-pos" title="${esc(anchorTitle)}">${esc(el.rel_x)}, ${esc(el.rel_y)}${ANCHOR_MARK[anchor] || ''}</td>
+                        <td>${actionCode.startsWith('fill:') ? '' : `<button class="btn-wiki btn-wiki-primary btn-sm" title="Focus ${esc(appLabel(focusKey))} and run" onclick="runCustomActionString(${jsArg(`focus:${focusKey} | ${actionCode}`)})">▶ Run</button>`}</td>
                     </tr>`;
             }
 
@@ -1138,7 +1148,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <ul class="toc-list">
                         <li class="toc-item"><a class="toc-link" href="#sec-shortcuts">1 Keyboard Accelerators (${hotkeyElements.length})</a></li>
                         <li class="toc-item"><a class="toc-link" href="#sec-controls">2 UI Elements & Recipes (${ctrlElements.length})</a></li>
-                        <li class="toc-item"><a class="toc-link" href="#sec-tree">3 Hierarchy Tree & Action Chains</a></li>
+                        <li class="toc-item" id="tocTree" style="display: none;"><a class="toc-link" href="#sec-tree">3 Menu Hierarchy</a></li>
                     </ul>
                 </div>
 
@@ -1166,111 +1176,71 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <table class="wikitable compact-table" id="ctrlTable">
-                    <colgroup><col style="width:36%"><col style="width:13%"><col><col style="width:90px"></colgroup>
+                    <colgroup><col style="width:34%"><col style="width:12%"><col><col style="width:90px"><col style="width:64px"></colgroup>
                     <thead>
-                        <tr><th>Control</th><th>Type</th><th>Recipe (click to copy)</th><th title="Window-relative position; arrows mark right/bottom anchoring">Position</th></tr>
+                        <tr><th>Control</th><th>Type</th><th>Recipe (click to copy)</th><th title="Window-relative position; arrows mark right/bottom anchoring">Position</th><th></th></tr>
                     </thead>
                     <tbody>
-                        ${elRows || '<tr><td colspan="4" style="color: var(--text-muted);">No controls indexed yet. Click 🔬 Deep Dive above.</td></tr>'}
+                        ${elRows || '<tr><td colspan="5" style="color: var(--text-muted);">No controls indexed yet. Click 🔬 Deep Dive above.</td></tr>'}
                     </tbody>
                 </table>
 
-                <h2 class="wiki-h2" id="sec-tree">3 Hierarchy Tree & Action Chains</h2>
-                <details class="tree-section">
-                    <summary>Show controls grouped by menu, toolbar and container, with runnable action chains</summary>
-                    <div id="appTreeContainer">
-                        <p style="color: var(--text-muted); font-size: 13px;">Loading hierarchy tree...</p>
-                    </div>
-                </details>
+                <div id="treeSection" style="display: none;">
+                    <h2 class="wiki-h2" id="sec-tree">3 Menu Hierarchy</h2>
+                    <div id="appTreeContainer"></div>
+                </div>
             `;
 
             loadAppTree(appKey);
         }
 
+        // Section 3 lists only what the controls table can't: submenu contents from the
+        // built-in menu hierarchies (Notepad, Paint) and the Windows Settings categories.
+        // Apps without either keep the section hidden.
         async function loadAppTree(appKey) {
             const container = document.getElementById('appTreeContainer');
             if (!container) return;
-
+            let data;
             try {
                 const res = await fetch(`/api/app_tree?app=${encodeURIComponent(appKey)}`);
-                const data = await res.json();
-                const branches = data.tree || [];
-
-                if (branches.length === 0) {
-                    container.innerHTML = '<p style="color: var(--text-muted);">No hierarchy tree mapped for this application yet.</p>';
-                    return;
-                }
-
-                let html = '<div style="display: flex; flex-direction: column; gap: 14px;">';
-
-                for (const branch of branches) {
-                    html += `
-                        <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
-                            <div style="background: #f8f9fa; border-bottom: 1px solid var(--border-light); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <strong style="font-size: 14px; font-family: var(--serif);">${esc(branch.name)}</strong>
-                                    <span style="font-size: 11.5px; color: var(--text-muted); margin-left: 8px;">(${esc(branch.count || 0)} controls)</span>
-                                </div>
-                                <span style="font-size: 11px; color: var(--text-muted);">${esc(branch.description || '')}</span>
-                            </div>
-                            <div style="padding: 12px 14px;">
-                    `;
-
-                    if (branch.sub_branches && branch.sub_branches.length > 0) {
-                        for (const sub of branch.sub_branches) {
-                            html += `
-                                <details style="margin-bottom: 6px; border: 1px solid #eaecf0; border-radius: 2px; padding: 6px 10px; background: #fafbfc;">
-                                    <summary style="font-weight: bold; cursor: pointer; color: var(--primary); font-size: 13px; padding: 4px 0;">
-                                        📁 ${esc(sub.name)} <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(${esc(sub.count || (sub.children || []).length)} options)</span>
-                                    </summary>
-                                    <div style="margin-top: 8px; padding-left: 14px; border-left: 2px solid #c8ccd1;">
-                            `;
-                            for (const item of (sub.children || [])) {
-                                const scBadge = item.shortcut ? `<kbd class="kbd-cap">${esc(item.shortcut)}</kbd>` : '';
-                                html += `
-                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dotted #eaecf0; font-size: 12.5px;">
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <span style="color: #54595d;">↳</span>
-                                            <strong>${esc(item.name)}</strong>
-                                            ${scBadge}
-                                        </div>
-                                        <div style="display: flex; align-items: center; gap: 6px;">
-                                            <code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(item.action_chain || '')})">${esc(item.action_chain || '')}</code>
-                                            <button class="btn-wiki btn-wiki-primary btn-sm" onclick="runCustomActionString(${jsArg(item.action_chain || '')})">▶ Run</button>
-                                        </div>
-                                    </div>
-                                `;
-                            }
-                            html += `</div></details>`;
-                        }
-                    } else if (branch.children && branch.children.length > 0) {
-                        for (const item of branch.children) {
-                            const scBadge = item.shortcut ? `<kbd class="kbd-cap">${esc(item.shortcut)}</kbd>` : '';
-                            html += `
-                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dotted #eaecf0; font-size: 12.5px;">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span style="color: #54595d;">•</span>
-                                        <strong>${esc(item.name)}</strong>
-                                        <span style="font-size: 11px; color: var(--text-muted);">(${esc(item.control_type || '')})</span>
-                                        ${scBadge}
-                                    </div>
-                                    <div style="display: flex; align-items: center; gap: 6px;">
-                                        <code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(item.action_chain || '')})">${esc(item.action_chain || '')}</code>
-                                        <button class="btn-wiki btn-wiki-primary btn-sm" onclick="runCustomActionString(${jsArg(item.action_chain || '')})">▶ Run</button>
-                                    </div>
-                                </div>
-                            `;
-                        }
-                    }
-
-                    html += `</div></div>`;
-                }
-
-                html += '</div>';
-                container.innerHTML = html;
+                data = await res.json();
             } catch (e) {
-                container.innerHTML = `<p style="color: #d33;">Error loading tree: ${esc(e)}</p>`;
+                return;
             }
+            if (currentApp !== appKey || !document.getElementById('appTreeContainer')) return;
+
+            const branches = data.tree || [];
+            const folders = data.is_settings
+                ? branches
+                : branches.flatMap(b => (b.sub_branches || []).filter(sub => sub.type === 'MenuFolder'));
+            if (!folders.length) return;
+
+            const focusKey = appKey.split('/')[0];
+            let html = '';
+            for (const folder of folders) {
+                let rows = '';
+                for (const item of folder.children || []) {
+                    const chain = item.action_chain || '';
+                    const runChain = data.is_settings ? chain : `focus:${focusKey} | ${chain}`;
+                    rows += `
+                        <tr>
+                            <td title="${esc(item.name)}"><strong>${esc(item.name)}</strong>${item.shortcut ? ` <kbd class="kbd-cap">${esc(item.shortcut)}</kbd>` : ''}</td>
+                            <td><code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(chain)})">${esc(chain)}</code></td>
+                            <td><button class="btn-wiki btn-wiki-primary btn-sm" onclick="runCustomActionString(${jsArg(runChain)})">▶ Run</button></td>
+                        </tr>`;
+                }
+                html += `
+                    <details class="tree-folder" ${folders.length <= 6 ? 'open' : ''}>
+                        <summary>${esc(folder.name)} <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(${(folder.children || []).length})</span></summary>
+                        <table class="wikitable compact-table">
+                            <colgroup><col style="width:40%"><col><col style="width:64px"></colgroup>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </details>`;
+            }
+            container.innerHTML = html;
+            document.getElementById('treeSection').style.display = '';
+            document.getElementById('tocTree').style.display = '';
         }
 
         async function runCustomActionString(actStr) {

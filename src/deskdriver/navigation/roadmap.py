@@ -18,13 +18,14 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from deskdriver.automation.appid import AppIdentity
-from deskdriver.navigation.element_filter import is_transient
+from deskdriver.navigation.element_filter import is_transient, normalize_name
 from deskdriver.navigation.hotkeys import APP_PROFILES
 from deskdriver.navigation.roadmap_migrate import SCHEMA_VERSION, describe, migrate_entries
 from deskdriver.paths import ROADMAP_DIR, LEGACY_ROADMAP_FILE
 
 
 LOCK_FILE_NAME = ".lock"
+MIN_WINDOW_SIZE = 50  # px; smaller window rects are treated as invalid by learn_window
 BACKUP_DIR_NAME = "_backup_schema1"
 UNMIGRATED_DIR_NAME = "_unmigrated"
 
@@ -341,6 +342,38 @@ class UIRoadmap:
                     self.save(app_key)
         return removed
 
+    def normalize_names(self) -> dict[str, int]:
+        """
+        Re-key cached elements whose stored name normalize_name() would change
+        ("Media Alt+M" -> "media", "unnamed_buttoncontrol_477_1204" -> "button @ 62,985").
+        Returns {app_key: renamed count}.
+        """
+        renamed: dict[str, int] = {}
+        with self._lock:
+            for app_key, entry in self.map.items():
+                elements = entry.get("elements", {})
+                for old_key, el in list(elements.items()):
+                    raw = el.get("name") or old_key
+                    display, sc = normalize_name(raw, el.get("rel_x", 0), el.get("rel_y", 0))
+                    if display == raw:
+                        continue
+                    new_key = display.lower()
+                    shortcut = el.get("shortcut") or sc
+                    action = el.get("ai_action", "")
+                    if shortcut:
+                        action = f"hotkey:{shortcut.lower()}"
+                    elif action.startswith("fill:"):
+                        action = f"fill:{display}, <text>"
+                    else:
+                        action = f"click:{display}"
+                    del elements[old_key]
+                    self._removed.setdefault(app_key, set()).add(old_key)
+                    elements[new_key] = {**el, "name": display, "shortcut": shortcut, "ai_action": action}
+                    renamed[app_key] = renamed.get(app_key, 0) + 1
+                if app_key in renamed:
+                    self.save(app_key)
+        return renamed
+
     def resolve_app_key(self, query: str) -> str | None:
         """
         Cached app for a user-facing name: the exact key, the executable with or
@@ -380,6 +413,15 @@ class UIRoadmap:
         `app` is the window's AppIdentity (preferred) or an app key.
         """
         with self._lock:
+            win_left = window_rect["left"]
+            win_top = window_rect["top"]
+            win_w = max(1, window_rect.get("right", win_left + 800) - win_left)
+            win_h = max(1, window_rect.get("bottom", win_top + 600) - win_top)
+            # Minimized (-32000) or degenerate windows: element positions can't be made
+            # window-relative, so learning them would store screen coordinates.
+            if elements and (win_w < MIN_WINDOW_SIZE or win_h < MIN_WINDOW_SIZE or win_left <= -10000):
+                return
+
             app_key = app.key if isinstance(app, AppIdentity) else str(app)
             if app_key not in self.map:
                 self.map[app_key] = {"elements": {}, "last_updated": time.time(), **describe(app_key)}
@@ -397,15 +439,10 @@ class UIRoadmap:
             if categories:
                 self.map[app_key]["categories"] = categories
 
-            win_left = window_rect["left"]
-            win_top = window_rect["top"]
-            win_w = max(1, window_rect.get("right", win_left + 800) - win_left)
-            win_h = max(1, window_rect.get("bottom", win_top + 600) - win_top)
-
             exe = self.map[app_key].get("exe", "")
             for el in elements:
-                name = (el.get("name") or "").strip().lower()
-                if not name or name.startswith("(") or is_transient(el, exe):
+                raw_name = (el.get("name") or "").strip()
+                if not raw_name or raw_name.startswith("(") or is_transient(el, exe):
                     continue
 
                 rel_x = el["center_x"] - win_left
@@ -413,19 +450,23 @@ class UIRoadmap:
                 anchor_right = rel_x > (win_w * 0.65)
                 anchor_bottom = rel_y > (win_h * 0.65)
 
+                display, name_sc = normalize_name(raw_name, rel_x, rel_y)
+                name = display.lower()
                 existing_el = self.map[app_key]["elements"].get(name, {})
-                final_sc = el.get("shortcut", "") or existing_el.get("shortcut", "")
+                final_sc = el.get("shortcut", "") or name_sc or existing_el.get("shortcut", "")
 
                 ct = el.get("control_type", "ButtonControl")
                 if final_sc:
                     ai_action = f"hotkey:{final_sc.lower()}"
                 elif any(k in ct for k in ("Edit", "ComboBox", "Spinner", "Document")):
-                    ai_action = f"fill:{el.get('name', name)}, <text>"
+                    ai_action = f"fill:{display}, <text>"
                 else:
-                    ai_action = f"click:{el.get('name', name)}"
+                    ai_action = f"click:{display}"
+                if display == raw_name and el.get("ai_action"):
+                    ai_action = el["ai_action"]
 
                 self.map[app_key]["elements"][name] = {
-                    "name": el.get("name", name),
+                    "name": display,
                     "control_type": ct,
                     "shortcut": final_sc,
                     "rel_x": rel_x,
@@ -442,7 +483,7 @@ class UIRoadmap:
                     "value": el.get("value", existing_el.get("value", "")),
                     "toggle_state": el.get("toggle_state", existing_el.get("toggle_state", None)),
                     "container_path": el.get("container_path", existing_el.get("container_path", "")),
-                    "ai_action": el.get("ai_action", ai_action),
+                    "ai_action": ai_action,
                     "is_enabled": el.get("is_enabled", existing_el.get("is_enabled", True)),
                 }
 
@@ -450,11 +491,8 @@ class UIRoadmap:
             # Profiles describe main windows, not dialogs ("notepad.exe/page setup")
             app_profile = APP_PROFILES.get(app_key, {}) if "/" not in app_key else {}
             for action_name, hk in app_profile.items():
-                matched_key = None
-                for k in self.map[app_key]["elements"]:
-                    if action_name in k or k in action_name:
-                        matched_key = k
-                        break
+                # Whole-word match only: "media information" must not tag the "media" menu
+                matched_key = match_element_key(self.map[app_key]["elements"], action_name)
                 if matched_key:
                     if not self.map[app_key]["elements"][matched_key].get("shortcut"):
                         self.map[app_key]["elements"][matched_key]["shortcut"] = hk

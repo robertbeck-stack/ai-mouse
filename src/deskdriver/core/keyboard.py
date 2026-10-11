@@ -44,6 +44,8 @@ VK_MAP = {
     "down": 0x28,
     "left": 0x25,
     "right": 0x27,
+    "plus": 0xBB,    # VK_OEM_PLUS / VK_OEM_MINUS: the +/- keys on any layout
+    "minus": 0xBD,
     "printscreen": 0x2C,
     "prtscn": 0x2C,
     "snapshot": 0x2C,
