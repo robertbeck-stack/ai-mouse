@@ -916,9 +916,14 @@ HTML_CONTENT = """<!DOCTYPE html>
                 `;
             }
 
+            const canvasBadge = proc.is_canvas_game ? `
+                <tr><th>Engine Surface</th><td><span class="scan-badge scan-badge-actionpipeline" style="font-weight:bold;">🎮 ${proc.engine}</span></td></tr>
+            ` : '';
+
             const procRows = proc.pid ? `
                 <tr><th>Process</th><td><code>${proc.exe_name || 'N/A'}</code> (PID: ${proc.pid})</td></tr>
                 <tr><th>Window Class</th><td><code>${proc.class_name || 'N/A'}</code></td></tr>
+                ${canvasBadge}
                 <tr><th>Resolution & DPI</th><td>${proc.dpi ? proc.dpi + ' DPI' : '96 DPI'} &bull; ${proc.architecture || 'x64'}</td></tr>
             ` : '';
 
@@ -961,6 +966,13 @@ HTML_CONTENT = """<!DOCTYPE html>
                         </div>
                     </div>
                 </div>
+
+                ${proc.is_canvas_game ? `
+                    <div class="hatnote" style="border-left: 4px solid #f2994a; background: #fffdf5; padding: 10px 14px; margin-bottom: 16px;">
+                        🎮 <strong>Hardware Canvas / Game Engine Detected (${proc.engine}):</strong><br>
+                        This application renders directly to the GPU without native Windows UIA controls. DeskDriver automatically controls it using <strong>Zero-Latency Keyboard Accelerators</strong> and <strong>Responsive Spatial Grid Anchors</strong>.
+                    </div>
+                ` : ''}
 
                 <div class="hatnote">
                     "<em>${appKey} (software)</em>" redirects here. This article documents interactive controls, process specs, and keyboard accelerators indexed for <strong>${appKey}</strong>.

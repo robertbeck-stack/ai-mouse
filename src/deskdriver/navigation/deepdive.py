@@ -82,6 +82,37 @@ def get_window_process_specs(hwnd: int) -> dict:
     return specs
 
 
+KNOWN_CANVAS_CLASSES = {
+    "unitywndclass": "Unity Engine Game",
+    "unrealwindow": "Unreal Engine Game",
+    "glfw30": "OpenGL / GLFW Canvas",
+    "sdl_app": "SDL2 Game / Canvas",
+    "ogrewindow": "Ogre3D Engine",
+    "valve001": "Valve Source Engine",
+    "sunawtframe": "Java AWT / Swing Frame",
+    "chrome_renderwidgethosthwnd": "Chromium WebGL / Canvas",
+}
+
+
+def detect_canvas_game_surface(class_name: str, discovered_count: int, width: int, height: int) -> dict:
+    """Detect whether a window is a hardware-accelerated GPU canvas, game, or non-UIA surface."""
+    cn = (class_name or "").lower()
+    engine_name = KNOWN_CANVAS_CLASSES.get(cn, "")
+    is_canvas = bool(engine_name) or (discovered_count <= 4 and width >= 400 and height >= 300)
+
+    if is_canvas and not engine_name:
+        engine_name = "Custom GPU Surface / Game Canvas"
+
+    return {
+        "is_canvas_game": is_canvas,
+        "engine": engine_name,
+        "advice": (
+            "Hardware-accelerated canvas detected without OS UIA tree. "
+            "Controlled via keyboard accelerators and spatial grid anchors."
+        ) if is_canvas else "",
+    }
+
+
 def extract_win32_menu_items(hwnd: int) -> list[dict]:
     """
     Exhaustively extracts all legacy Win32 menu commands (File, Edit, View, Help, etc.)
@@ -293,7 +324,37 @@ def deep_dive_app(
     except Exception:
         pass
 
-    # 4. Rich Categorization for Encyclopedia and AI Navigation
+    # 4. Canvas / Game Engine Detection
+    win_w = max(1, win_rect.get("right", 0) - win_rect.get("left", 0))
+    win_h = max(1, win_rect.get("bottom", 0) - win_rect.get("top", 0))
+    canvas_info = detect_canvas_game_surface(specs["class_name"], len(all_discovered), win_w, win_h)
+    specs["is_canvas_game"] = canvas_info["is_canvas_game"]
+    specs["engine"] = canvas_info["engine"]
+    specs["canvas_advice"] = canvas_info["advice"]
+
+    if canvas_info["is_canvas_game"]:
+        cx = win_rect.get("left", 0) + win_w // 2
+        cy = win_rect.get("top", 0) + win_h // 2
+        if not any("canvas" in e["name"].lower() or "center" in e["name"].lower() for e in all_discovered):
+            all_discovered.append({
+                "name": "Canvas Center / Play",
+                "control_type": "SpatialAnchor",
+                "shortcut": "Space",
+                "access_key": "",
+                "container_path": "Canvas",
+                "automation_id": "AnchorCenter",
+                "class_name": specs["class_name"],
+                "help_text": "Resolution-centered spatial anchor for canvas/game menus",
+                "value": "",
+                "toggle_state": None,
+                "is_enabled": True,
+                "ai_action": "click:Canvas Center / Play",
+                "center_x": cx,
+                "center_y": cy,
+                "rect": {"left": cx - 50, "top": cy - 25, "width": 100, "height": 50},
+            })
+
+    # 5. Rich Categorization for Encyclopedia and AI Navigation
     categories = {
         "menus": [],
         "buttons": [],
