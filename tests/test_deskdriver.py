@@ -247,15 +247,19 @@ def test_dashboard_scan_logging():
         app="testapp",
         summary="Test deep dive scan",
         count=12,
+        new_count=4,
+        new_items=["Settings", "New File", "Close", "Save"],
         shortcuts_count=3,
         items=["File", "Edit", "Save"],
         duration=0.15,
     )
     assert entry["action"] == "Deep Dive"
     assert entry["app"] == "testapp"
+    assert entry["new_count"] == 4
+    assert len(entry["new_items"]) == 4
     assert len(dashboard.SCAN_LOGS) > 0
     assert dashboard.SCAN_LOGS[0]["app"] == "testapp"
-    print(f" -> Dashboard scan logging active (latest: {dashboard.SCAN_LOGS[0]['summary']})")
+    print(f" -> Dashboard scan logging active (latest: {dashboard.SCAN_LOGS[0]['summary']}, new: {dashboard.SCAN_LOGS[0]['new_count']})")
 
 
 def run_all():

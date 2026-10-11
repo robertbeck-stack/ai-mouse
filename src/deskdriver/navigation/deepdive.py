@@ -206,7 +206,17 @@ def deep_dive_app(
         else:
             categories["others"].append(item["name"])
 
-    # 4. Save into persistent UI Roadmap
+    # 4. Check newly discovered elements against existing roadmap
+    existing_elements = set(roadmap.map.get(app_key, {}).get("elements", {}).keys())
+    new_elements = []
+    for item in all_discovered:
+        name = (item.get("name") or "").strip()
+        clean_key = name.lower()
+        if clean_key and clean_key not in existing_elements:
+            new_elements.append(name)
+            existing_elements.add(clean_key)
+
+    # Save into persistent UI Roadmap
     roadmap.learn_window(title, all_discovered, win_rect)
     roadmap.save()
 
@@ -224,6 +234,8 @@ def deep_dive_app(
         "window_title": title,
         "total_elements": len(all_discovered),
         "total_shortcuts": len(categories["shortcuts"]),
+        "new_elements": new_elements,
+        "new_count": len(new_elements),
         "duration_seconds": duration,
         "categories": {
             "menu_items": len(categories["menus"]),

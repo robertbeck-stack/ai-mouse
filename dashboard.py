@@ -1017,8 +1017,29 @@ HTML_CONTENT = """<!DOCTYPE html>
                     const badgeClass = 'scan-badge-' + (log.action || '').toLowerCase().replace(/[^a-z]/g, '');
                     const appKey = (log.app || '').toLowerCase();
                     const appLink = log.app ? `<a onclick="navigateTo('app', '${appKey}')" style="color: var(--primary); font-weight: bold; cursor: pointer;">${log.app}</a>` : '<span style="color: var(--text-muted);">(System)</span>';
+                    let newSection = '';
+                    if (log.new_items && log.new_items.length > 0) {
+                        newSection = `
+                            <div style="margin-top: 6px;">
+                                <span style="font-size: 11px; font-weight: bold; color: #14866d; background: #e6f9f0; border: 1px solid #8be0bf; padding: 1px 6px; border-radius: 2px;">
+                                    ✨ Newly Discovered (+${log.new_count || log.new_items.length}):
+                                </span>
+                                <div style="margin-top: 4px;">
+                                    ${log.new_items.slice(0, 15).map(i => `<span class="item-chip" style="background: #e6f9f0; border-color: #8be0bf; color: #14866d; font-weight: 600;">+ ${i}</span>`).join('')}
+                                    ${log.new_items.length > 15 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.new_items.length - 15} more</span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    } else if (log.new_count === 0 && log.count > 0) {
+                        newSection = `
+                            <div style="margin-top: 4px; font-size: 11.5px; color: var(--text-muted); font-style: italic;">
+                                (0 new &mdash; all ${log.count} controls were already indexed in roadmap)
+                            </div>
+                        `;
+                    }
+
                     const itemsList = (log.items && log.items.length > 0)
-                        ? `<div style="margin-top: 6px;">${log.items.slice(0, 12).map(i => `<span class="item-chip">${i}</span>`).join('')}${log.items.length > 12 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.items.length - 12} more</span>` : ''}</div>`
+                        ? `<div style="margin-top: 6px; font-size: 11.5px; color: var(--text-muted);"><span style="font-weight: 600;">All scanned:</span> ${log.items.slice(0, 10).map(i => `<span class="item-chip">${i}</span>`).join('')}${log.items.length > 10 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.items.length - 10} more</span>` : ''}</div>`
                         : '';
 
                     rows += `
@@ -1031,6 +1052,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                             <td style="vertical-align: top;">${appLink}</td>
                             <td style="vertical-align: top;">
                                 <div><strong>${log.summary}</strong> ${log.duration ? `<small style="color: var(--text-muted);">(${log.duration})</small>` : ''}</div>
+                                ${newSection}
                                 ${itemsList}
                             </td>
                             <td style="text-align: right; white-space: nowrap; vertical-align: top;">
@@ -1204,7 +1226,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 });
                 const data = await res.json();
                 if (data.status === 'auto_recorded') {
-                    showToast(`✅ Auto-tour complete! Moved cursor and recorded ${data.count} controls for ${data.app}!`);
+                    const newTxt = (data.new_count > 0) ? ` (✨ ${data.new_count} newly discovered!)` : ' (0 new, all cached)';
+                    showToast(`✅ Auto-tour complete! Recorded ${data.count} controls${newTxt} for ${data.app}!`, 8000);
                     await fetchStats();
                     if (data.app) navigateTo('app', data.app);
                 } else {
@@ -1242,7 +1265,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 });
                 const data = await res.json();
                 if (data.status === 'deep_dive_complete') {
-                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts for ${data.app}!`, 8000);
+                    const newTxt = (data.new_count > 0) ? ` (✨ ${data.new_count} newly discovered!)` : ' (all already in roadmap)';
+                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts${newTxt} for ${data.app}!`, 8000);
                     await fetchStats();
                     if (data.app) navigateTo('app', data.app);
                 } else {
@@ -1408,6 +1432,8 @@ def add_scan_log(
     app: str,
     summary: str,
     count: int = 0,
+    new_count: int = 0,
+    new_items: list | None = None,
     shortcuts_count: int = 0,
     items: list | None = None,
     duration: float = 0.0,
@@ -1421,6 +1447,8 @@ def add_scan_log(
         "app": app,
         "summary": summary,
         "count": count,
+        "new_count": new_count,
+        "new_items": new_items or [],
         "shortcuts_count": shortcuts_count,
         "items": items or [],
         "duration": f"{duration:.2f}s" if duration else "",
@@ -1567,12 +1595,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             win = req_data.get("window", "")
             res = am.auto_record_window(window_search=win, move_cursor=True)
             if isinstance(res, dict) and res.get("status") == "auto_recorded":
+                count = res.get("count", 0)
+                new_items = res.get("new_elements", [])
+                new_count = res.get("new_count", len(new_items))
+                if new_count > 0:
+                    summary = f"Recorded {count} controls (✨ {new_count} newly added to roadmap)"
+                else:
+                    summary = f"Re-verified {count} controls (0 new &mdash; all already cached)"
+
                 add_scan_log(
                     action="Auto-Tour",
                     app=res.get("app") or win or "Application",
-                    summary=f"Automated cursor tour recorded {res.get('count', 0)} controls",
-                    count=res.get("count", 0),
-                    items=res.get("recorded_elements", [])[:25],
+                    summary=summary,
+                    count=count,
+                    new_count=new_count,
+                    new_items=new_items,
+                    items=res.get("recorded_elements", [])[:30],
                 )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
@@ -1585,14 +1623,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
             win = req_data.get("window", "")
             res = am.deep_dive_app(window_search=win)
             if isinstance(res, dict) and res.get("status") == "deep_dive_complete":
+                count = res.get("total_elements", 0)
+                sc_count = res.get("total_shortcuts", 0)
+                new_items = res.get("new_elements", [])
+                new_count = res.get("new_count", len(new_items))
                 discovered = [el.get("name") for el in res.get("discovered_elements", []) if el.get("name")]
+                if new_count > 0:
+                    summary = f"Indexed {count} controls & {sc_count} shortcuts (✨ {new_count} newly discovered)"
+                else:
+                    summary = f"Indexed {count} controls & {sc_count} shortcuts (0 new &mdash; all already known)"
+
                 add_scan_log(
                     action="Deep Dive",
                     app=res.get("app") or win or "Application",
-                    summary=f"Indexed {res.get('total_elements', 0)} controls & {res.get('total_shortcuts', 0)} shortcuts",
-                    count=res.get("total_elements", 0),
-                    shortcuts_count=res.get("total_shortcuts", 0),
-                    items=discovered[:25],
+                    summary=summary,
+                    count=count,
+                    new_count=new_count,
+                    new_items=new_items,
+                    shortcuts_count=sc_count,
+                    items=discovered[:30],
                     duration=res.get("duration_seconds", 0.0),
                 )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))

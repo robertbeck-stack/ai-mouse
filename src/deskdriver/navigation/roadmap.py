@@ -425,10 +425,20 @@ def auto_record_window(
     focus_window(target_win["hwnd"])
     time.sleep(0.15)
 
+    app_key = roadmap.get_app_key(target_win["title"])
+    existing_elements = set(roadmap.map.get(app_key, {}).get("elements", {}).keys())
+
     elements = list_clickable_elements(window_search=target_win["title"], max_elements=max_elements)
     recorded_names = []
+    new_names = []
 
     for el in elements:
+        name = (el.get("name") or "").strip()
+        clean_key = name.lower()
+        if clean_key and clean_key not in existing_elements:
+            new_names.append(name)
+            existing_elements.add(clean_key)
+
         cx = el["center_x"]
         cy = el["center_y"]
         if move_cursor and cx > 0 and cy > 0:
@@ -436,7 +446,7 @@ def auto_record_window(
             time.sleep(0.06)
 
         roadmap.learn_window(target_win["title"], [el], target_win["rect"])
-        recorded_names.append(el["name"])
+        recorded_names.append(name)
 
     roadmap.save()
     try:
@@ -446,9 +456,11 @@ def auto_record_window(
 
     return {
         "status": "auto_recorded",
-        "app": roadmap.get_app_key(target_win["title"]),
+        "app": app_key,
         "window_title": target_win["title"],
         "recorded_elements": recorded_names,
+        "new_elements": new_names,
+        "new_count": len(new_names),
         "count": len(recorded_names),
     }
 
