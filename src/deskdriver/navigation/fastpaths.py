@@ -38,6 +38,9 @@ FASTPATHS = {
     "explorer": "explorer.exe",
     "taskmgr": "taskmgr.exe",
     "notepad": "notepad.exe",
+    "paint": "mspaint.exe",
+    "store": "ms-windows-store:",
+    "microsoft store": "ms-windows-store:",
 }
 
 

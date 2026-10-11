@@ -219,6 +219,13 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                 snap_window("", side=arg or "left")
                 results.append({"step": idx + 1, "action": f"snapped window to {arg}", "status": "ok"})
 
+            elif verb in ("scan", "learn", "deepdive"):
+                from deskdriver.navigation.deepdive import deep_dive_app
+                scan_res = deep_dive_app(window_search=arg)
+                cnt = scan_res.get("total_elements", 0)
+                app_n = scan_res.get("app", arg or "app")
+                results.append({"step": idx + 1, "action": f"scanned {app_n} ({cnt} controls indexed into roadmap)", "status": "ok"})
+
             else:
                 results.append({"step": idx + 1, "action": f"unknown verb '{verb}'", "status": "skipped"})
 
