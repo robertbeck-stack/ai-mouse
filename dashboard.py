@@ -1731,6 +1731,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
             try {
                 const res = await fetch('/api/prelearn', { method: 'POST' });
+                const data = await res.json();
                 const newCnt = data.total_new_elements || 0;
                 const totalCnt = data.total_elements || 0;
                 const appsCnt = (data.scanned_apps || []).length;
