@@ -1739,7 +1739,7 @@ def save_scan_logs(logs):
         pass
 
 
-SCAN_LOGS = load_scan_logs()
+from deskdriver.navigation.history import load_scan_logs, save_scan_logs, record_scan_log
 
 
 def add_scan_log(
@@ -1754,26 +1754,18 @@ def add_scan_log(
     duration: float = 0.0,
     status: str = "success",
 ):
-    entry = {
-        "id": len(SCAN_LOGS) + 1,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "time_str": datetime.now().strftime("%H:%M:%S"),
-        "action": action,
-        "app": app,
-        "summary": summary,
-        "count": count,
-        "new_count": new_count,
-        "new_items": new_items or [],
-        "shortcuts_count": shortcuts_count,
-        "items": items or [],
-        "duration": f"{duration:.2f}s" if duration else "",
-        "status": status,
-    }
-    SCAN_LOGS.insert(0, entry)
-    if len(SCAN_LOGS) > 150:
-        SCAN_LOGS.pop()
-    save_scan_logs(SCAN_LOGS)
-    return entry
+    return record_scan_log(
+        action=action,
+        app=app,
+        summary=summary,
+        count=count,
+        new_count=new_count,
+        new_items=new_items,
+        shortcuts_count=shortcuts_count,
+        items=items,
+        duration=duration,
+        status=status,
+    )
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -1792,6 +1784,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             roadmap_data = am.roadmap.map
             total_elements = sum(len(app.get("elements", {})) for app in roadmap_data.values())
+            current_logs = load_scan_logs()
 
             data = {
                 "version": getattr(am, "__version__", "0.2.0"),
@@ -1802,8 +1795,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "fastpaths": FASTPATHS,
                 "roadmap": roadmap_data,
                 "timestamp": datetime.now().isoformat(),
-                "last_scan": SCAN_LOGS[0] if SCAN_LOGS else None,
-                "total_scans": len(SCAN_LOGS),
+                "last_scan": current_logs[0] if current_logs else None,
+                "total_scans": len(current_logs),
             }
             self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
         elif clean_path == "/api/actions":
@@ -1832,12 +1825,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
+            current_logs = load_scan_logs()
             self.wfile.write(
                 json.dumps(
                     {
-                        "logs": SCAN_LOGS,
-                        "last_scan": SCAN_LOGS[0] if SCAN_LOGS else None,
-                        "total_scans": len(SCAN_LOGS),
+                        "logs": current_logs,
+                        "last_scan": current_logs[0] if current_logs else None,
+                        "total_scans": len(current_logs),
                     },
                     ensure_ascii=False,
                 ).encode("utf-8")

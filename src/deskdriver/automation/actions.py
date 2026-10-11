@@ -221,9 +221,29 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
 
             elif verb in ("scan", "learn", "deepdive"):
                 from deskdriver.navigation.deepdive import deep_dive_app
+                from deskdriver.navigation.history import record_scan_log
                 scan_res = deep_dive_app(window_search=arg)
                 cnt = scan_res.get("total_elements", 0)
                 app_n = scan_res.get("app", arg or "app")
+                new_items = scan_res.get("new_elements", [])
+                new_cnt = scan_res.get("new_count", len(new_items))
+                sc_count = scan_res.get("total_shortcuts", 0)
+                discovered = [el.get("name") for el in scan_res.get("discovered_elements", []) if el.get("name")]
+                if new_cnt > 0:
+                    summary = f"Pipeline Deep Dive indexed {cnt} controls (✨ {new_cnt} newly discovered)"
+                else:
+                    summary = f"Pipeline Deep Dive indexed {cnt} controls (0 new &mdash; all already known)"
+                record_scan_log(
+                    action="Deep Dive",
+                    app=app_n,
+                    summary=summary,
+                    count=cnt,
+                    new_count=new_cnt,
+                    new_items=new_items,
+                    shortcuts_count=sc_count,
+                    items=discovered[:30],
+                    duration=scan_res.get("duration_seconds", 0.0),
+                )
                 results.append({"step": idx + 1, "action": f"scanned {app_n} ({cnt} controls indexed into roadmap)", "status": "ok"})
 
             else:

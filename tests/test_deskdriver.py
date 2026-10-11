@@ -257,9 +257,10 @@ def test_dashboard_scan_logging():
     assert entry["app"] == "testapp"
     assert entry["new_count"] == 4
     assert len(entry["new_items"]) == 4
-    assert len(dashboard.SCAN_LOGS) > 0
-    assert dashboard.SCAN_LOGS[0]["app"] == "testapp"
-    print(f" -> Dashboard scan logging active (latest: {dashboard.SCAN_LOGS[0]['summary']}, new: {dashboard.SCAN_LOGS[0]['new_count']})")
+    logs = dashboard.load_scan_logs()
+    assert len(logs) > 0
+    assert logs[0]["app"] == "testapp"
+    print(f" -> Dashboard scan logging active (latest: {logs[0]['summary']}, new: {logs[0]['new_count']})")
 
 
 def test_action_pipeline():
