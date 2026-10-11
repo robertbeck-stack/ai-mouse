@@ -3,7 +3,6 @@ Windows desktop station, thread input synchronization, and COM initialization.
 """
 
 import ctypes
-from ctypes import wintypes
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32

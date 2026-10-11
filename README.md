@@ -56,7 +56,7 @@ Dispatches inputs directly into the Windows kernel event queue using verified 40
 - Native Per-Monitor v2 DPI Awareness (`SetProcessDpiAwarenessContext(-4)`).
 
 ### 2. Spatial Roadmap & Responsive Anchoring
-Learns application UI structures and serializes them to `ui_roadmap.json`.
+Learns application UI structures and serializes them to `ui_roadmap/` — one JSON file per application, keyed by executable rather than window title (e.g. `ui_roadmap/notepad.exe.json`; UWP apps resolve to their real process such as `systemsettings.exe`, dialogs get their own surface like `notepad.exe/page setup`). Older title-keyed data is migrated automatically on first load (originals kept in `ui_roadmap/_backup_schema1/`).
 - **$O(1)$ coordinate resolution:** Resolves target buttons in under 1 ms without re-querying the accessibility tree.
 - **Responsive Anchors:** Automatically anchors controls to `top-left`, `top-right`, or `bottom-right`. When a window is resized, button coordinates dynamically adjust without re-scanning.
 
@@ -66,6 +66,12 @@ Bypasses manual clicking for operating system utilities:
 - `open_fastpath("sound")` &rarr; opens `ms-settings:sound`
 - `open_fastpath("taskmgr")` &rarr; opens Windows Task Manager
 - `open_fastpath("calc")` &rarr; launches Calculator
+
+Machine-specific launchers (games, portable apps) go in `local_fastpaths.json` next to
+the roadmap, which is kept out of git:
+```json
+{ "polytopia": "D:\\Games\\Polytopia\\Polytopia.exe" }
+```
 
 ### 4. Human-like Bézier Cursor Dynamics
 Generates cubic Bézier curves parameterized with smoothstep velocity easing and micro-overshoot corrections, making cursor automation appear completely natural (150–250 ms duration) without mechanical jumping.
@@ -110,9 +116,11 @@ deskdriver
 # Open http://localhost:8765 in your browser
 ```
 
-### 3. Run the Automated Test Suite
+### 3. Run the Tests
 ```powershell
-python tests/test_deskdriver.py
+pip install -e ".[dev]"
+pytest                          # unit tests (pure logic, also run in CI)
+python tests/test_deskdriver.py # end-to-end suite, drives real windows
 ```
 
 ---
@@ -120,6 +128,10 @@ python tests/test_deskdriver.py
 ## 🤖 MCP (Model Context Protocol) Integration
 
 DeskDriver exposes a high-performance **MCP Server** ready for integration with Claude Desktop, Antigravity, Cursor, and any MCP-compliant client.
+
+The easiest way to connect a client is the wiki's **🤖 AI / MCP Setup** page: it shows
+ready-to-paste configs for Claude Desktop, Claude Code, Cursor, Antigravity and VS Code
+with the real paths on your machine, plus the current tool list.
 
 ### Configuration (`claude_desktop_config.json`)
 
@@ -130,11 +142,13 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
   "mcpServers": {
     "deskdriver": {
       "command": "C:\\path\\to\\deskdriver\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "deskdriver.server"]
+      "args": ["C:\\path\\to\\deskdriver\\server.py"]
     }
   }
 }
 ```
+
+Claude Code: `claude mcp add --scope user deskdriver -- "C:\path\to\deskdriver\.venv\Scripts\python.exe" "C:\path\to\deskdriver\server.py"`
 
 ### Available MCP Tools
 
@@ -145,7 +159,7 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
 | `type_text` | `text`, `enter=False` | Types clean Unicode text into the active control via `SendInput`. |
 | `open_fastpath` | `target` (e.g. `system`, `sound`, `calc`) | Instantly opens Windows settings or tools via URI protocols (0 ms). |
 | `fill_input` | `element_name`, `text`, `press_enter=True` | Clicks an input field, clears existing content (`Ctrl+A` -> `Backspace`), and types the new text. |
-| `system_prelearn` | `max_elements_per_app=150` | Scans all open windows and caches their interactive controls into `ui_roadmap.json`. |
+| `system_prelearn` | `max_elements_per_app=150` | Scans all open windows and caches their interactive controls into `ui_roadmap/`. |
 | `get_roadmap_stats` | *none* | Returns cached application summaries and indexed controls. |
 | `get_mouse_position` | *none* | Returns current screen coordinates `(x, y)`. |
 | `move_mouse` | `x`, `y`, `smooth=True`, `duration=0.25` | Moves the cursor using human Bézier trajectory. |
@@ -210,31 +224,52 @@ am.move_mouse(100, 100)
 
 ## 🗺️ Project Architecture
 
+Layers only depend downward (`paths`/`core` → `automation` → `navigation` → `workflows`);
+`tests/test_deskdriver.py` enforces this.
+
 ```text
 deskdriver/
 ├── src/
 │   ├── deskdriver/                # Primary package
+│   │   ├── paths.py               # Data file locations (override with DESKDRIVER_DATA_DIR)
 │   │   ├── core/                  # Low-level Win32 integration
 │   │   │   ├── desktop.py         # Thread desktops, DPI awareness context
 │   │   │   ├── keyboard.py        # 40-byte atomic SendInput, hotkeys
-│   │   │   └── mouse.py           # Bézier movement, clicks, scrolls, drags
-│   │   ├── automation/            # Windows UI Automation (UIA)
+│   │   │   ├── mouse.py           # Bézier movement, clicks, scrolls, drags
+│   │   │   ├── clipboard.py       # Native Win32 clipboard
+│   │   │   └── shortcuts.py       # Accelerator extraction from UI text
+│   │   ├── automation/            # Windows UI Automation (UIA), read-only
+│   │   │   ├── appid.py           # Which program a window belongs to (exe-based app keys)
 │   │   │   ├── windows.py         # Window enumeration & foreground focus
-│   │   │   └── uia.py             # COM element inspection & clickables
+│   │   │   ├── uia.py             # COM element inspection & clickable scans
+│   │   │   └── draw.py            # One-call freehand drawing (stops if the user takes over)
 │   │   ├── navigation/            # Spatial navigation & caching
-│   │   │   ├── fastpaths.py       # OS URI handlers (ms-settings, calc)
-│   │   │   ├── hotkeys.py         # Accelerator extraction from UI text
+│   │   │   ├── roadmap.py         # Per-app roadmap store (ui_roadmap/*.json)
+│   │   │   ├── roadmap_migrate.py # Title-keyed (schema 1) -> exe-keyed (schema 2) migration
+│   │   │   ├── element_filter.py  # Keeps tabs, web content and secrets out of the roadmap
+│   │   │   ├── interact.py        # Click / fill / wait for named elements
+│   │   │   ├── deepdive.py        # Exhaustive app indexing & canvas detection
 │   │   │   ├── prelearn.py        # Batch scanner for open applications
-│   │   │   └── roadmap.py         # O(1) cache with responsive anchors
+│   │   │   ├── tree.py            # Application hierarchy trees
+│   │   │   ├── fastpaths.py       # OS URI handlers (ms-settings, calc)
+│   │   │   ├── hotkeys.py         # Built-in app hotkey profiles
+│   │   │   └── history.py         # Scan history log
+│   │   ├── workflows/             # Multi-step automation on top of navigation
+│   │   │   ├── actions.py         # Action pipelines ("open:notepad | type:Hi")
+│   │   │   └── recorder.py        # Live session recorder
 │   │   ├── sync/                  # Cloud sync & community sharing
 │   │   │   ├── sanitizer.py       # PII & path scrubbing
 │   │   │   └── client.py          # Community roadmap client
-│   │   └── server.py              # FastMCP Server implementation
+│   │   └── server.py              # MCP Server implementation
 │   └── ai_mouse/                  # Backward compatibility shim
 │       └── __init__.py            # Re-exports deskdriver
 ├── tests/
-│   └── test_deskdriver.py         # Self-check verification test suite
-├── dashboard.py                   # Wikipedia-style UI-Pedia web interface
+│   ├── unit/                      # pytest unit tests (no desktop needed, run in CI)
+│   └── test_deskdriver.py         # End-to-end suite (runs on a temp copy of the data)
+├── ui_roadmap/                    # Learned app profiles, one JSON per app (not in git)
+├── local_fastpaths.json           # Machine-specific fastpaths (not in git)
+├── dashboard.py                   # Wiki server: JSON API + serves web/
+├── web/                           # Wiki page: index.html, style.css, app.js
 ├── demo.py                        # Terminal interactive demo
 ├── pyproject.toml                 # Packaging configuration (v0.2.0)
 └── ROADMAP.md                     # Community Hub & Future Architecture

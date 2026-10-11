@@ -8,22 +8,30 @@ import os
 import re
 import json
 import time
-import subprocess
-from pathlib import Path
 
 from deskdriver.core.mouse import move_and_click, drag_and_drop
 from deskdriver.core.keyboard import press_hotkey, type_text
-from deskdriver.automation.windows import list_windows, focus_window, snap_window, wait_for_window
+from deskdriver.automation.windows import focus_window, foreground_root, snap_window
+from deskdriver.automation.appid import wait_for_app_window
+from deskdriver.automation.uia import find_open_menu_item
 from deskdriver.navigation.fastpaths import execute_fastpath
-from deskdriver.navigation.roadmap import fast_click_element, fill_input
+from deskdriver.navigation.interact import fast_click_element, fill_input, wait_for_element
+from deskdriver.navigation.deepdive import deep_dive_app
 
-ACTIONS_FILE = Path(__file__).resolve().parents[3] / "saved_actions.json"
+from deskdriver.paths import SAVED_ACTIONS_FILE as ACTIONS_FILE
 
 DEFAULT_ACTIONS = {
     "quick_note": "open:notepad | wait:0.4 | hotkey:ctrl+n | type:DeskDriver Action Pipeline | key:enter",
     "open_display_settings": "open:display | wait:0.5",
     "system_info": "open:about | wait:0.5",
     "open_calc": "open:calc | wait:0.5 | type:500*1.24 | key:enter",
+}
+
+
+# Steps that send clicks or keystrokes to whatever window is in front
+INPUT_VERBS = {
+    "click", "tap", "doubleclick", "dblclick", "rightclick", "rclick",
+    "type", "write", "fill", "input", "hotkey", "key", "press", "drag", "draw",
 }
 
 
@@ -77,11 +85,11 @@ def delete_action(name: str) -> bool:
 def parse_action_string(action_str: str) -> list[dict]:
     """
     Parse an action string into executable step dictionaries.
-    Supports separators: ' | ', ' -> ', ';', and newlines.
+    Supports separators: '|', ' -> ' (with spaces), ';', and newlines.
     """
     steps = []
-    # Split on pipeline delimiters
-    raw_parts = [p.strip() for p in re.split(r"\s*(?:\||->|;|\n)\s*", action_str) if p.strip()]
+    # Split on pipeline delimiters; a bare "->" belongs to drag coordinates (x1,y1->x2,y2)
+    raw_parts = [p.strip() for p in re.split(r"\s*(?:\||\s->\s|;|\n)\s*", action_str) if p.strip()]
 
     for raw in raw_parts:
         if ":" not in raw:
@@ -98,6 +106,25 @@ def parse_action_string(action_str: str) -> list[dict]:
     return steps
 
 
+def _step_status(res: dict) -> str:
+    """Map a fast_click_element / fill_input result to a step status."""
+    return "error" if "error" in res else res.get("status", "ok")
+
+
+def _resolve_element_point(name: str) -> tuple[int, int] | None:
+    """Screen coordinates of a named element (roadmap cache first, then a live UIA scan)."""
+    el = wait_for_element(name, timeout=1.0)
+    if el and "center_x" in el and "center_y" in el:
+        return el["center_x"], el["center_y"]
+    return None
+
+
+def _launch(target: str) -> None:
+    """Start an executable or App Paths alias without going through a shell."""
+    exe = target if target.lower().endswith(".exe") else f"{target}.exe"
+    os.startfile(exe)
+
+
 def execute_action(action_str: str, interval: float = 0.05) -> dict:
     """
     Execute a multi-step action string on the desktop.
@@ -109,10 +136,22 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
         return {"error": "No valid action steps found in string"}
 
     results = []
+    # Window the pipeline last opened / focused. Input steps only run while it is
+    # still in front, so a user clicking elsewhere stops the pipeline instead of
+    # having clicks and keystrokes land in the wrong window.
+    target_hwnd = None
+    interrupted = ""
+    # After a right-click the next named click is usually an item of the context menu
+    menu_open = False
 
     for idx, step in enumerate(steps):
         verb = step["verb"]
         arg = step["arg"]
+
+        if verb in INPUT_VERBS and target_hwnd and foreground_root() != target_hwnd:
+            interrupted = f"step {idx + 1} ({step['raw']}): another window came to the front"
+            results.append({"step": idx + 1, "action": f"stopped before '{step['raw']}'", "status": "interrupted"})
+            break
 
         try:
             if verb in ("open", "launch"):
@@ -123,28 +162,30 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                     continue
 
                 # 2. Window already exists?
-                win = wait_for_window(arg, timeout=0.3)
+                win = wait_for_app_window(arg, timeout=0.3)
                 if win:
-                    focus_window(win["hwnd"])
-                    results.append({"step": idx + 1, "action": f"focused existing '{arg}'", "status": "ok"})
+                    target_hwnd = win["hwnd"]
+                    ok = focus_window(win["hwnd"])
+                    results.append({"step": idx + 1, "action": f"focused existing '{arg}'" if ok else f"could not bring '{arg}' to the front", "status": "ok" if ok else "error"})
                 else:
                     # Launch executable
-                    exe = arg if arg.endswith(".exe") else f"{arg}.exe"
                     try:
-                        subprocess.Popen([exe], shell=True)
+                        _launch(arg)
                         time.sleep(0.5)
-                        w = wait_for_window(arg, timeout=2.5)
+                        w = wait_for_app_window(arg, timeout=2.5)
                         if w:
                             focus_window(w["hwnd"])
-                        results.append({"step": idx + 1, "action": f"launched '{exe}'", "status": "ok"})
+                            target_hwnd = w["hwnd"]
+                        results.append({"step": idx + 1, "action": f"launched '{arg}'", "status": "ok"})
                     except Exception as err:
                         results.append({"step": idx + 1, "action": f"launch '{arg}' failed: {err}", "status": "error"})
 
             elif verb in ("focus", "window", "app"):
-                w = wait_for_window(arg, timeout=2.0)
+                w = wait_for_app_window(arg, timeout=2.0)
                 if w:
-                    focus_window(w["hwnd"])
-                    results.append({"step": idx + 1, "action": f"focused '{arg}'", "status": "ok"})
+                    target_hwnd = w["hwnd"]
+                    ok = focus_window(w["hwnd"])
+                    results.append({"step": idx + 1, "action": f"focused '{arg}'" if ok else f"could not bring '{arg}' to the front", "status": "ok" if ok else "error"})
                 else:
                     results.append({"step": idx + 1, "action": f"window '{arg}' not found", "status": "warning"})
 
@@ -156,27 +197,29 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                     move_and_click(cx, cy, smooth=True, duration=0.1)
                     results.append({"step": idx + 1, "action": f"clicked coordinates ({cx}, {cy})", "status": "ok"})
                 else:
-                    res = fast_click_element(arg)
-                    results.append({"step": idx + 1, "action": f"click '{arg}'", "status": res.get("status", "ok")})
+                    menu_point = find_open_menu_item(arg) if menu_open else None
+                    if menu_point:
+                        move_and_click(*menu_point, smooth=True, duration=0.1)
+                        results.append({"step": idx + 1, "action": f"clicked menu item '{arg}'", "status": "ok"})
+                    else:
+                        res = fast_click_element(arg)
+                        results.append({"step": idx + 1, "action": f"click '{arg}'", "status": _step_status(res)})
 
-            elif verb in ("doubleclick", "dblclick"):
+            elif verb in ("doubleclick", "dblclick", "rightclick", "rclick"):
+                is_right = verb in ("rightclick", "rclick")
+                label = "right-click" if is_right else "double-click"
                 coord_match = re.match(r"^(\d+)\s*,\s*(\d+)$", arg)
-                if coord_match:
-                    cx, cy = int(coord_match.group(1)), int(coord_match.group(2))
-                    move_and_click(cx, cy, clicks=2, smooth=True, duration=0.1)
+                point = (int(coord_match.group(1)), int(coord_match.group(2))) if coord_match else _resolve_element_point(arg)
+                if point:
+                    move_and_click(
+                        point[0], point[1],
+                        button="right" if is_right else "left",
+                        clicks=1 if is_right else 2,
+                        smooth=True, duration=0.1,
+                    )
+                    results.append({"step": idx + 1, "action": f"{label} '{arg}' at {point}", "status": "ok"})
                 else:
-                    fast_click_element(arg)
-                    move_and_click(0, 0, clicks=1)
-                results.append({"step": idx + 1, "action": f"double-click '{arg}'", "status": "ok"})
-
-            elif verb in ("rightclick", "rclick"):
-                coord_match = re.match(r"^(\d+)\s*,\s*(\d+)$", arg)
-                if coord_match:
-                    cx, cy = int(coord_match.group(1)), int(coord_match.group(2))
-                    move_and_click(cx, cy, button="right", smooth=True, duration=0.1)
-                else:
-                    fast_click_element(arg)
-                results.append({"step": idx + 1, "action": f"right-click '{arg}'", "status": "ok"})
+                    results.append({"step": idx + 1, "action": f"{label} '{arg}': element not found", "status": "error"})
 
             elif verb in ("type", "write"):
                 type_text(arg)
@@ -191,7 +234,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                 else:
                     field, text = arg, ""
                 res = fill_input(field.strip(), text.strip())
-                results.append({"step": idx + 1, "action": f"filled '{field.strip()}' with '{text.strip()}'", "status": res.get("status", "ok")})
+                results.append({"step": idx + 1, "action": f"filled '{field.strip()}' with '{text.strip()}'", "status": _step_status(res)})
 
             elif verb in ("hotkey", "key", "press"):
                 press_hotkey(arg)
@@ -212,43 +255,30 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                     sec = float(arg)
                     time.sleep(sec)
                     results.append({"step": idx + 1, "action": f"waited {sec}s", "status": "ok"})
-                except Exception:
+                except ValueError:
                     time.sleep(0.3)
+                    results.append({"step": idx + 1, "action": f"invalid wait '{arg}', waited 0.3s", "status": "warning"})
 
             elif verb in ("snap",):
-                snap_window("", side=arg or "left")
-                results.append({"step": idx + 1, "action": f"snapped window to {arg}", "status": "ok"})
+                ok = snap_window("", side=arg or "left")  # "" = foreground window
+                results.append({"step": idx + 1, "action": f"snapped window to {arg}", "status": "ok" if ok else "error"})
 
             elif verb in ("scan", "learn", "deepdive"):
-                from deskdriver.navigation.deepdive import deep_dive_app
-                from deskdriver.navigation.history import record_scan_log
                 scan_res = deep_dive_app(window_search=arg)
-                cnt = scan_res.get("total_elements", 0)
-                app_n = scan_res.get("app", arg or "app")
-                new_items = scan_res.get("new_elements", [])
-                new_cnt = scan_res.get("new_count", len(new_items))
-                sc_count = scan_res.get("total_shortcuts", 0)
-                discovered = [el.get("name") for el in scan_res.get("discovered_elements", []) if el.get("name")]
-                if new_cnt > 0:
-                    summary = f"Pipeline Deep Dive indexed {cnt} controls (✨ {new_cnt} newly discovered)"
+                if "error" in scan_res:
+                    results.append({"step": idx + 1, "action": f"scan '{arg}' failed: {scan_res['error']}", "status": "error"})
                 else:
-                    summary = f"Pipeline Deep Dive indexed {cnt} controls (0 new &mdash; all already known)"
-                record_scan_log(
-                    action="Deep Dive",
-                    app=app_n,
-                    summary=summary,
-                    count=cnt,
-                    new_count=new_cnt,
-                    new_items=new_items,
-                    shortcuts_count=sc_count,
-                    items=discovered[:30],
-                    duration=scan_res.get("duration_seconds", 0.0),
-                )
-                results.append({"step": idx + 1, "action": f"scanned {app_n} ({cnt} controls indexed into roadmap)", "status": "ok"})
+                    cnt = scan_res.get("total_elements", 0)
+                    app_n = scan_res.get("app", arg or "app")
+                    results.append({"step": idx + 1, "action": f"scanned {app_n} ({cnt} controls indexed into roadmap)", "status": "ok"})
 
             else:
                 results.append({"step": idx + 1, "action": f"unknown verb '{verb}'", "status": "skipped"})
 
+            # The menu stays open only for the step right after the right-click (a short wait included)
+            menu_open = verb in ("rightclick", "rclick") or (menu_open and verb in ("wait", "sleep"))
+            if menu_open and verb in ("rightclick", "rclick"):
+                time.sleep(0.25)  # give the menu time to open
             if interval > 0:
                 time.sleep(interval)
 
@@ -256,11 +286,14 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
             results.append({"step": idx + 1, "action": f"failed '{step['raw']}': {step_err}", "status": "error"})
 
     duration = round(time.perf_counter() - t0, 2)
-    return {
-        "status": "completed",
+    result = {
+        "status": "interrupted" if interrupted else "completed",
         "action_string": action_str,
         "steps_count": len(steps),
         "steps_executed": len(results),
         "duration_seconds": duration,
         "steps": results,
     }
+    if interrupted:
+        result["reason"] = f"Stopped at {interrupted}. The user may have taken over; ask before continuing."
+    return result

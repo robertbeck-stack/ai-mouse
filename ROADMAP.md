@@ -25,7 +25,7 @@ Instead of requiring every local user's machine to independently discover and le
 ┌─────────────────────────────────────────────────────────────┐
 │                       LOCAL DESKTOP                         │
 │                                                             │
-│   [Windows Apps] ──> [UIA Scanner] ──> [ui_roadmap.json]    │
+│   [Windows Apps] ──> [UIA Scanner] ──> [ui_roadmap/*.json]  │
 │                                               │             │
 │                                               ▼             │
 │                                    ┌─────────────────────┐  │
@@ -71,7 +71,7 @@ A crowdsourced UI database must guarantee zero leakage of Personally Identifiabl
 ### Phase 1: Local Mastery (Completed ✅)
 - [x] Sub-millisecond cursor control with human-like Bézier easing.
 - [x] Win32 / UIA element inspection and fallback name generation.
-- [x] Persistent local roadmap cache (`ui_roadmap.json`) with relative offset indexing.
+- [x] Persistent local roadmap cache (`ui_roadmap/`, one file per app) with relative offset indexing.
 - [x] Universal Hotkeys engine & standard application profiles (`APP_PROFILES`).
 - [x] 33+ Windows zero-click OS Fastpaths (`ms-settings:`, `calc:`, `taskmgr`).
 - [x] Modern, atomic `SendInput` Unicode typing and hotkey execution.

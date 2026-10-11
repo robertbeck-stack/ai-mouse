@@ -6,8 +6,9 @@ the UI Roadmap database before the user or AI starts issuing tasks.
 
 import time
 from deskdriver.core.desktop import ensure_desktop
-from deskdriver.automation.windows import list_windows, focus_window
-from deskdriver.automation.uia import list_clickable_elements
+from deskdriver.automation.windows import list_windows
+from deskdriver.automation.appid import identify_window
+from deskdriver.navigation.interact import list_clickable_elements  # learns what it scans
 from deskdriver.navigation.roadmap import roadmap
 import uiautomation as auto
 
@@ -15,7 +16,7 @@ import uiautomation as auto
 def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
     """
     Scan all open windows and the taskbar, indexing their interactive elements
-    into the persistent ui_roadmap.json database.
+    into the persistent ui_roadmap/ database.
     """
     ensure_desktop()
     results = {
@@ -36,8 +37,8 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
 
     for win in windows:
         title = win["title"]
-        app_key = roadmap.get_app_key(title)
-        
+        app_key = identify_window(win["hwnd"]).key
+
         # Avoid duplicate scans for identical app instances
         if app_key in scanned_keys:
             continue
@@ -47,7 +48,7 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
 
         try:
             # Find elements in window with higher depth and element cap
-            elements = list_clickable_elements(window_search=title, max_elements=max_elements_per_app)
+            elements = list_clickable_elements(hwnd=win["hwnd"], max_elements=max_elements_per_app)
             if elements:
                 current_map = roadmap.map.get(app_key, {}).get("elements", {})
                 new_app_elements = []
@@ -105,13 +106,15 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
             walk_taskbar(taskbar)
 
             if tb_elements:
-                existing_tb = set(roadmap.map.get("taskbar", {}).get("elements", {}).keys())
+                tb_identity = identify_window(taskbar.NativeWindowHandle)
+                tb_key = tb_identity.key
+                existing_tb = set(roadmap.map.get(tb_key, {}).get("elements", {}).keys())
                 roadmap.learn_window(
-                    window_title="taskbar",
+                    tb_identity,
                     elements=tb_elements,
                     window_rect={"left": t_rect.left, "top": t_rect.top, "right": t_rect.right, "bottom": t_rect.bottom},
                 )
-                current_tb = roadmap.map.get("taskbar", {}).get("elements", {})
+                current_tb = roadmap.map.get(tb_key, {}).get("elements", {})
                 new_tb = []
                 for k, v in current_tb.items():
                     if k not in existing_tb:
@@ -120,7 +123,7 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
                 all_new_elements.extend(new_tb)
 
                 results["scanned_apps"].append({
-                    "app": "taskbar",
+                    "app": tb_key,
                     "window_title": "Windows Taskbar",
                     "elements_count": len(tb_elements),
                     "new_count": len(new_tb),

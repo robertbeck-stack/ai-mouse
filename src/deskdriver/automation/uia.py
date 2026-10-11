@@ -2,9 +2,12 @@
 UI Automation element detection, cursor inspection, and interactive control scanning.
 """
 
+import ctypes
+
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.core.mouse import get_mouse_position
 from deskdriver.automation.windows import list_windows, user32
+from deskdriver.core.shortcuts import extract_shortcut_from_name
 import uiautomation as auto
 
 # Comprehensive set of interactive control types across Windows & web apps
@@ -123,15 +126,82 @@ def get_element_at(x: int, y: int) -> dict:
 inspect_at = get_element_at
 
 
-def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
+MENU_ITEM_TYPES = ("MenuItemControl", "ListItemControl", "ButtonControl")
+
+
+def find_open_menu_item(name: str, max_depth: int = 8) -> tuple[int, int] | None:
     """
-    Find clickable interactive elements in the active window or target window.
-    Deep traversal with high coverage for web browsers, settings, and desktop apps.
+    Center of an item named `name` in an open context / popup menu, or None.
+    Popup menus are untitled top-level windows (#32768, XAML and Chromium popups),
+    which list_windows() leaves out, so a right-click's menu needs its own search.
+    """
+    ensure_desktop()
+    want = (name or "").strip().lower()
+    if not want:
+        return None
+    popups = []
+    enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def cb(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) == 0:
+            popups.append(hwnd)
+        return True
+
+    user32.EnumWindows(enum_proc(cb), 0)
+    for hwnd in popups[:40]:  # z-order: a just-opened menu is near the top
+        try:
+            root = auto.ControlFromHandle(hwnd)
+        except Exception:
+            continue
+        stack = [(root, 0)]
+        while stack:
+            ctrl, depth = stack.pop()
+            try:
+                if ctrl.ControlTypeName in MENU_ITEM_TYPES:
+                    label = (ctrl.Name or "").strip().lower()
+                    if label == want or label.startswith(want + "\t") or label.startswith(want + " "):
+                        r = ctrl.BoundingRectangle
+                        if r.right > r.left and r.bottom > r.top:
+                            return (r.left + r.right) // 2, (r.top + r.bottom) // 2
+                if depth < max_depth:
+                    stack.extend((child, depth + 1) for child in ctrl.GetChildren())
+            except Exception:
+                continue
+    return None
+
+
+def elements_at(x: int, y: int, ancestors: int = 3) -> list[tuple[str, str]]:
+    """
+    (name, control type) of the element at a point and its first few ancestors:
+    the hit is often a label inside the button that was cached. [] if UIA fails.
+    """
+    ensure_desktop()
+    found = []
+    try:
+        ctrl = auto.ControlFromPoint(x, y)
+        while ctrl and len(found) <= ancestors:
+            found.append(((ctrl.Name or "").strip(), ctrl.ControlTypeName))
+            ctrl = ctrl.GetParentControl()
+    except Exception:
+        return found
+    return found
+
+
+def scan_clickable_elements(
+    window_search: str | None = None, max_elements: int = 150, hwnd: int | None = None
+) -> tuple[list[dict], dict | None]:
+    """
+    Find clickable interactive elements in a window: `hwnd` if given, else the first
+    window whose title contains `window_search`, else the foreground window.
+    Returns (elements, window) where window is {"hwnd", "title", "rect"} of the scanned
+    top-level window, or None if nothing could be scanned. Read-only: nothing is persisted.
     """
     ensure_desktop()
 
     target_ctrl = None
-    if window_search:
+    if hwnd:
+        target_ctrl = auto.ControlFromHandle(hwnd)
+    elif window_search:
         wins = list_windows()
         q = window_search.lower()
         for w in wins:
@@ -144,7 +214,7 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
         target_ctrl = auto.ControlFromHandle(fg_hwnd)
 
     if not target_ctrl:
-        return []
+        return [], None
 
     elements = []
 
@@ -161,8 +231,6 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
                     cx = (rect.left + rect.right) // 2
                     cy = (rect.top + rect.bottom) // 2
                     sc = getattr(child, "AcceleratorKey", "") or getattr(child, "AccessKey", "")
-                    
-                    from deskdriver.navigation.hotkeys import extract_shortcut_from_name
                     clean_name, final_shortcut = extract_shortcut_from_name(raw_name, fallback_shortcut=sc.strip() if sc else "")
 
                     elements.append({
@@ -186,23 +254,21 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
 
     walk(target_ctrl)
 
-
-    # Automatically learn discovered elements into the roadmap
+    window = None
     try:
-        from deskdriver.navigation.roadmap import roadmap
         top_win = target_ctrl.GetTopLevelControl() or target_ctrl
         w_rect = top_win.BoundingRectangle
-        roadmap.learn_window(
-            window_title=top_win.Name or "unknown",
-            elements=elements,
-            window_rect={
-                "left": w_rect.left,
-                "top": w_rect.top,
-                "right": w_rect.right,
-                "bottom": w_rect.bottom,
-            },
-        )
+        window = {
+            "hwnd": int(top_win.NativeWindowHandle or 0),
+            "title": top_win.Name or "unknown",
+            "rect": {"left": w_rect.left, "top": w_rect.top, "right": w_rect.right, "bottom": w_rect.bottom},
+        }
     except Exception:
         pass
 
-    return elements
+    return elements, window
+
+
+def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
+    """Read-only element scan. deskdriver.list_clickable_elements additionally learns the results."""
+    return scan_clickable_elements(window_search, max_elements)[0]

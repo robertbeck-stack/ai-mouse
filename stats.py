@@ -4,7 +4,6 @@ Run: .\\.venv\\Scripts\\python stats.py
 """
 
 import sys
-import time
 from pathlib import Path
 from datetime import datetime
 
@@ -13,8 +12,8 @@ src_path = Path(__file__).parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-import ai_mouse as am
-from ai_mouse.navigation.fastpaths import FASTPATHS
+import deskdriver as am
+from deskdriver.navigation.fastpaths import FASTPATHS
 
 try:
     if hasattr(sys.stdout, "reconfigure"):

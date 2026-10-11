@@ -4,17 +4,13 @@ Extracts shortcuts embedded in control names/tooltips and provides
 built-in hotkey knowledge profiles for common Windows applications.
 """
 
-import re
+from deskdriver.core.shortcuts import SHORTCUT_REGEX, extract_shortcut_from_name
 
-# Regex to detect embedded shortcut hints like (Ctrl+S), (Ctrl+Shift+N), (Alt+F4), (F5)
-SHORTCUT_REGEX = re.compile(
-    r"\(((?:Ctrl|Alt|Shift)[^\)]*|F\d{1,2})\)",
-    re.IGNORECASE,
-)
+__all__ = ["APP_PROFILES", "SHORTCUT_REGEX", "extract_shortcut_from_name", "get_app_hotkeys"]
 
 # Standard application hotkey profiles
 APP_PROFILES = {
-    "brave": {
+    "brave.exe": {
         "new tab": "Ctrl+T",
         "close tab": "Ctrl+W",
         "reopen closed tab": "Ctrl+Shift+T",
@@ -38,7 +34,7 @@ APP_PROFILES = {
         "print": "Ctrl+P",
         "save page as": "Ctrl+S",
     },
-    "chrome": {
+    "chrome.exe": {
         "new tab": "Ctrl+T",
         "close tab": "Ctrl+W",
         "reopen closed tab": "Ctrl+Shift+T",
@@ -56,7 +52,7 @@ APP_PROFILES = {
         "devtools": "F12",
         "print": "Ctrl+P",
     },
-    "notepad": {
+    "notepad.exe": {
         "new file": "Ctrl+N",
         "new window": "Ctrl+Shift+N",
         "open": "Ctrl+O",
@@ -79,7 +75,7 @@ APP_PROFILES = {
         "zoom out": "Ctrl+Minus",
         "reset zoom": "Ctrl+0",
     },
-    "explorer": {
+    "explorer.exe": {
         "new folder": "Ctrl+Shift+N",
         "new window": "Ctrl+N",
         "close window": "Ctrl+W",
@@ -95,37 +91,44 @@ APP_PROFILES = {
         "forward": "Alt+Right",
         "up one folder": "Alt+Up",
     },
+    "vlc.exe": {
+        "play/pause": "Space",
+        "stop": "S",
+        "next": "N",
+        "previous": "P",
+        "fullscreen": "F",
+        "mute": "M",
+        "volume up": "Ctrl+Up",
+        "volume down": "Ctrl+Down",
+        "open file": "Ctrl+O",
+        "jump to specific time": "Ctrl+T",
+        "take snapshot": "Shift+S",
+        "playlist": "Ctrl+L",
+        "media information": "Ctrl+I",
+        "effects and filters": "Ctrl+E",
+        "preferences": "Ctrl+P",
+        "quit": "Ctrl+Q",
+    },
+    "polytopia.exe": {
+        "end turn / confirm": "Space",
+        "cycle next unit": "Tab",
+        "game menu / cancel": "Esc",
+        "zoom in": "+",
+        "zoom out": "-",
+        "pan camera up": "W",
+        "pan camera left": "A",
+        "pan camera down": "S",
+        "pan camera right": "D",
+        "quick confirm": "Enter",
+    },
 }
 
 
-def extract_shortcut_from_name(name: str, fallback_shortcut: str = "") -> tuple[str, str]:
-    """
-    Extract embedded shortcut from a control name.
-    Example: 'Collapse tabs (Ctrl+Shift+L)' -> ('Collapse tabs', 'Ctrl+Shift+L')
-    Example: 'Bold (Ctrl+B)' -> ('Bold', 'Ctrl+B')
-    """
-    if not name:
-        return "", fallback_shortcut
-
-    match = SHORTCUT_REGEX.search(name)
-    if match:
-        extracted = match.group(1).strip()
-        # Clean the name of the trailing (Ctrl+...)
-        clean_name = re.sub(r"\s*\((?:Ctrl|Alt|Shift)[^\)]*\)\s*", "", name, flags=re.IGNORECASE).strip()
-        return clean_name or name, extracted
-
-    # If UIA gave us an AccessKey like 'Alt, B' or 'Alt, F', but no accelerator
-    if fallback_shortcut and not fallback_shortcut.startswith("Alt,"):
-        return name, fallback_shortcut
-
-    return name, fallback_shortcut
-
-
 def get_app_hotkeys(app_name: str) -> dict[str, str]:
-    """Retrieve known hotkey profile for a given application by name."""
-    low = app_name.lower()
+    """Known hotkey profile for an app, by key or name ("notepad.exe", "Notepad", "notepad")."""
+    low = app_name.strip().lower()
     for key, shortcuts in APP_PROFILES.items():
-        if key in low:
+        stem = key.removesuffix(".exe")
+        if low in (key, stem) or stem in low:
             return shortcuts
     return {}
-

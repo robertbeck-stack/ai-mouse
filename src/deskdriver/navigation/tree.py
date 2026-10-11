@@ -6,13 +6,11 @@ so AI agents and users can dynamically explore and execute nested commands with 
 """
 
 from typing import Any
-import uiautomation as auto
 
 from deskdriver.core.desktop import ensure_desktop
-from deskdriver.automation.windows import list_windows, focus_window
+from deskdriver.automation.windows import list_windows
+from deskdriver.automation.appid import identify_window, find_app_window
 from deskdriver.navigation.roadmap import roadmap
-from deskdriver.navigation.hotkeys import extract_shortcut_from_name, APP_PROFILES
-from deskdriver.navigation.fastpaths import FASTPATHS
 
 
 WINDOWS_SETTINGS_TREE = {
@@ -59,7 +57,7 @@ WINDOWS_SETTINGS_TREE = {
 
 
 STANDARD_MENU_HIERARCHY = {
-    "notepad": {
+    "notepad.exe": {
         "File": [
             {"name": "New tab", "shortcut": "Ctrl+N"},
             {"name": "New window", "shortcut": "Ctrl+Shift+N"},
@@ -94,7 +92,7 @@ STANDARD_MENU_HIERARCHY = {
             {"name": "Word wrap", "shortcut": "Alt+Z"},
         ],
     },
-    "paint": {
+    "mspaint.exe": {
         "File": [
             {"name": "New", "shortcut": "Ctrl+N"},
             {"name": "Open", "shortcut": "Ctrl+O"},
@@ -119,6 +117,58 @@ STANDARD_MENU_HIERARCHY = {
             {"name": "Gridlines", "shortcut": "Ctrl+G"},
         ],
     },
+    "vlc.exe": {
+        "Media": [
+            {"name": "Open File...", "shortcut": "Ctrl+O"},
+            {"name": "Open Multiple Files...", "shortcut": "Ctrl+Shift+O"},
+            {"name": "Open Folder...", "shortcut": "Ctrl+F"},
+            {"name": "Open Disc...", "shortcut": "Ctrl+D"},
+            {"name": "Open Network Stream...", "shortcut": "Ctrl+N"},
+            {"name": "Open Capture Device...", "shortcut": "Ctrl+C"},
+            {"name": "Open Location from clipboard", "shortcut": "Ctrl+V"},
+            {"name": "Save Playlist to File...", "shortcut": "Ctrl+Y"},
+            {"name": "Convert / Save...", "shortcut": "Ctrl+R"},
+            {"name": "Stream...", "shortcut": "Ctrl+S"},
+            {"name": "Quit", "shortcut": "Ctrl+Q"},
+        ],
+        "Playback": [
+            {"name": "Play/Pause", "shortcut": "Space"},
+            {"name": "Stop", "shortcut": "S"},
+            {"name": "Previous", "shortcut": "P"},
+            {"name": "Next", "shortcut": "N"},
+            {"name": "Jump to Specific Time", "shortcut": "Ctrl+T"},
+            {"name": "Record", "shortcut": "Shift+R"},
+        ],
+        "Audio": [
+            {"name": "Increase Volume", "shortcut": "Ctrl+Up"},
+            {"name": "Decrease Volume", "shortcut": "Ctrl+Down"},
+            {"name": "Mute", "shortcut": "M"},
+        ],
+        "Video": [
+            {"name": "Fullscreen", "shortcut": "F"},
+            {"name": "Take Snapshot", "shortcut": "Shift+S"},
+        ],
+        "Subtitle": [
+            {"name": "Add Subtitle File...", "shortcut": ""},
+            {"name": "Next Subtitle Track", "shortcut": "V"},
+        ],
+        "Tools": [
+            {"name": "Effects and Filters", "shortcut": "Ctrl+E"},
+            {"name": "Media Information", "shortcut": "Ctrl+I"},
+            {"name": "Codec Information", "shortcut": "Ctrl+J"},
+            {"name": "Messages", "shortcut": "Ctrl+M"},
+            {"name": "Preferences", "shortcut": "Ctrl+P"},
+        ],
+        "View": [
+            {"name": "Playlist", "shortcut": "Ctrl+L"},
+            {"name": "Minimal Interface", "shortcut": "Ctrl+H"},
+            {"name": "Fullscreen Interface", "shortcut": "F11"},
+        ],
+        "Help": [
+            {"name": "Help", "shortcut": "F1"},
+            {"name": "About", "shortcut": "Shift+F1"},
+        ],
+    },
 }
 
 
@@ -131,7 +181,7 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
     q = (app_query or "").strip().lower()
 
     # 1. OS Settings Tree
-    if q in ("settings", "ms-settings", "windows settings", "os settings"):
+    if q in ("settings", "ms-settings", "windows settings", "os settings", "systemsettings", "systemsettings.exe"):
         branches = []
         for cat_name, items in WINDOWS_SETTINGS_TREE.items():
             children = []
@@ -159,28 +209,13 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
         }
 
     # 2. Match Target Application Window & Roadmap Cache
-    wins = list_windows()
-    target_win = None
-    for w in wins:
-        if q and q in w["title"].lower():
-            target_win = w
-            break
-        elif q and q in roadmap.get_app_key(w["title"]).lower():
-            target_win = w
-            break
-
-    # If no window open, check if app exists in roadmap cache
-    matched_app_key = None
-    for ak in roadmap.map:
-        if q and (q == ak.lower() or q in ak.lower()):
-            matched_app_key = ak
-            break
-
+    # The cached app (by key, exe or display name) - works even when no window is open
+    matched_app_key = roadmap.resolve_app_key(app_query or "")
+    target_win = find_app_window(app_query or "", list_windows()) if q else None
     if not matched_app_key and target_win:
-        matched_app_key = roadmap.get_app_key(target_win["title"])
-
+        matched_app_key = identify_window(target_win["hwnd"]).key
     if not matched_app_key:
-        matched_app_key = q or "unknown"
+        matched_app_key = app_query if (app_query or "") in roadmap.map else (q or "unknown")
 
     cached_elements = roadmap.map.get(matched_app_key, {}).get("elements", {})
 
@@ -192,8 +227,16 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
     window_branch = []
     other_branch = []
 
-    # Check for known sub-menus
-    std_menus = STANDARD_MENU_HIERARCHY.get(matched_app_key.lower(), {})
+    # Menus learned by deep dive (explore_menu_bar) win over the built-in hierarchies,
+    # which only cover a few apps and are kept as a fallback for apps not scanned yet
+    learned_menus: dict[str, list[dict]] = {}
+    for el_data in cached_elements.values():
+        parent = el_data.get("menu_parent")
+        if parent:
+            learned_menus.setdefault(parent, []).append(
+                {"name": el_data.get("name", ""), "shortcut": el_data.get("shortcut", "")})
+    std_menus = STANDARD_MENU_HIERARCHY.get(matched_app_key.split("/", 1)[0].lower(), {}) if "/" not in matched_app_key else {}
+    std_menus = {**std_menus, **learned_menus}
     populated_menus = set()
 
     # Build Menu Hierarchy from std_menus
@@ -227,8 +270,8 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
         sc = el_data.get("shortcut", "")
         nl = name.lower()
 
-        # If it's a top-level menu button we already expanded, skip duplicate
-        if nl in populated_menus:
+        # Top-level menus we already expanded, and their items, are in the menu folders
+        if nl in populated_menus or el_data.get("menu_parent"):
             continue
 
         item_entry = {

@@ -2,7 +2,12 @@
 Self-check test suite for DeskDriver (and backward compatibility shim ai_mouse).
 """
 
+import atexit
+import hashlib
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -16,8 +21,36 @@ if str(root_path) not in sys.path:
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-import deskdriver as dd
-import ai_mouse as am
+# Run against a throwaway copy of the data so tests never write to the real roadmap,
+# scan history or saved actions (the copy keeps tests that need learned apps working).
+REAL_DATA_FILES = ["ui_roadmap", "scan_history.json", "saved_actions.json"]
+TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="deskdriver-test-"))
+for _name in REAL_DATA_FILES:
+    _src = root_path / _name
+    if _src.is_dir():
+        shutil.copytree(_src, TEST_DATA_DIR / _name)
+    elif _src.exists():
+        shutil.copy2(_src, TEST_DATA_DIR / _name)
+os.environ["DESKDRIVER_DATA_DIR"] = str(TEST_DATA_DIR)
+atexit.register(shutil.rmtree, TEST_DATA_DIR, True)
+
+
+def _real_data_fingerprint() -> str:
+    h = hashlib.sha256()
+    for name in REAL_DATA_FILES:
+        base = root_path / name
+        files = sorted(base.rglob("*")) if base.is_dir() else [base]
+        for f in files:
+            if f.is_file():
+                h.update(str(f.relative_to(root_path)).encode())
+                h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+REAL_DATA_BEFORE = _real_data_fingerprint()
+
+import deskdriver as dd  # noqa: E402  (must come after DESKDRIVER_DATA_DIR is set)
+import ai_mouse as am  # noqa: E402
 
 
 def test_shim_parity():
@@ -212,10 +245,14 @@ def test_multimonitor_and_waiting():
     assert "hwnd" in found
     print(f" -> Smart wait resolved window {target_title!r} instantly")
 
-    # Element wait check on cached element
-    cached_el = dd.wait_for_element("SelfCheckTestButton", timeout=0.5)
-    assert cached_el is not None
-    print(" -> Smart wait resolved cached element")
+    # A cached element that isn't actually on screen is not reported as available
+    # (SelfCheckTestButton only exists in the roadmap, at made-up coordinates)
+    cached_el = dd.wait_for_element("SelfCheckTestButton", timeout=0.3)
+    assert cached_el is None
+    from deskdriver.navigation.interact import cached_target_present
+    assert not cached_target_present({"name": "SelfCheckTestButton", "control_type": "ButtonControl",
+                                      "center_x": 5, "center_y": 5})
+    print(" -> Smart wait ignores stale cached positions")
 
 
 def test_auto_record():
@@ -240,9 +277,15 @@ def test_deep_dive():
 
 
 def test_dashboard_scan_logging():
-    print("Testing dashboard scan logging & history tracking...")
+    print("Testing dashboard API, request guards & scan history...")
+    import json as _json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
     import dashboard
-    entry = dashboard.add_scan_log(
+
+    entry = dashboard.record_scan_log(
         action="Deep Dive",
         app="testapp",
         summary="Test deep dive scan",
@@ -253,14 +296,40 @@ def test_dashboard_scan_logging():
         items=["File", "Edit", "Save"],
         duration=0.15,
     )
-    assert entry["action"] == "Deep Dive"
-    assert entry["app"] == "testapp"
-    assert entry["new_count"] == 4
-    assert len(entry["new_items"]) == 4
-    logs = dashboard.load_scan_logs()
-    assert len(logs) > 0
-    assert logs[0]["app"] == "testapp"
-    print(f" -> Dashboard scan logging active (latest: {logs[0]['summary']}, new: {logs[0]['new_count']})")
+    assert entry["action"] == "Deep Dive" and entry["new_count"] == 4
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def call(path, body=None, headers=None):
+        data = _json.dumps(body).encode() if isinstance(body, (dict, list)) else body
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    try:
+        status, raw = call("/api/logs")
+        logs = _json.loads(raw)["logs"]
+        assert status == 200 and logs[0]["app"] == "testapp"
+        assert call("/")[0] == 200
+        assert call("/api/stats")[0] == 200
+        # Guards: cross-site origin and DNS-rebinding host are refused
+        assert call("/api/run_action", {"action": "wait:0"}, {"Origin": "https://evil.example"})[0] == 403
+        assert call("/api/stats", headers={"Host": "evil.example"})[0] == 403
+        # Bad input gives JSON errors instead of a dropped connection
+        assert call("/api/run_action", b"{oops", {"Content-Type": "application/json"})[0] == 400
+        assert call("/api/run_action", {})[0] == 400
+        assert call("/api/nope")[0] == 404
+        status, raw = call("/api/run_action", {"action": "wait:0.01"})
+        assert status == 200 and _json.loads(raw)["status"] == "completed"
+    finally:
+        server.shutdown()
+        server.server_close()
+    print(" -> Dashboard API, guards and scan logging verified")
 
 
 def test_action_pipeline():
@@ -309,7 +378,7 @@ def test_application_tree():
 
     # 2. Notepad Tree
     np_tree = dd.build_application_tree("notepad")
-    assert np_tree["app"] == "notepad"
+    assert np_tree["app"] == "notepad.exe"
     assert np_tree["total_branches"] > 0
     assert len(np_tree["tree"]) > 0
     # Check that Menu Bar exists
@@ -320,6 +389,217 @@ def test_application_tree():
     assert "children" in file_sub and len(file_sub["children"]) > 0
     assert "action_chain" in file_sub["children"][0]
     print(f" -> Dynamic tree hierarchy verified: Settings ({settings_tree['total_items']} options) & Notepad ({np_tree['total_controls']} controls mapped)")
+
+
+def test_session_recorder():
+    print("Testing SessionRecorder live monitoring...")
+    status_init = dd.get_recording_status()
+    assert isinstance(status_init, dict)
+    assert status_init.get("recording") is False
+
+    res_start = dd.start_recording()
+    assert res_start.get("status") == "recording_started"
+    status_active = dd.get_recording_status()
+    assert status_active.get("recording") is True
+
+    # Stop recording
+    res_stop = dd.stop_recording()
+    assert res_stop.get("status") == "recording_stopped"
+    assert "pipeline" in res_stop
+    assert "actions_count" in res_stop
+    assert "visited_apps" in res_stop
+
+    status_after = dd.get_recording_status()
+    assert status_after.get("recording") is False
+    print(f" -> Live SessionRecorder lifecycle verified (pipeline: '{res_stop.get('pipeline')}')")
+
+
+def test_review_regressions():
+    """Pure-logic checks for fixes from the code review (no desktop interaction, no disk writes)."""
+    import sys as _sys
+    import tempfile
+    print("Testing review regressions (canvas detection, matching, parsing, storage)...")
+    from deskdriver.navigation.deepdive import detect_canvas_game_surface
+    rm = _sys.modules["deskdriver.navigation.roadmap"]
+
+    # Canvas heuristic: UIA frameworks and capped / already-known scans are never canvases
+    assert not detect_canvas_game_surface("ApplicationFrameWindow", 2, 1200, 800)["is_canvas_game"]
+    assert not detect_canvas_game_surface("Chrome_WidgetWin_1", 3, 1200, 800, known_count=2000)["is_canvas_game"]
+    assert not detect_canvas_game_surface("MyEngineWnd", 5, 1200, 800, truncated=True)["is_canvas_game"]
+    assert detect_canvas_game_surface("UnityWndClass", 50, 1200, 800)["is_canvas_game"]
+    assert detect_canvas_game_surface("MyEngineWnd", 1, 1200, 800)["is_canvas_game"]
+
+    # App identity is the executable; shared hosts are qualified by window class
+    from deskdriver.automation import appid
+    assert appid.key_for("Notepad.exe", "Notepad") == "notepad.exe"
+    assert appid.key_for("explorer.exe", "CabinetWClass") == "explorer.exe"
+    assert appid.key_for("explorer.exe", "Shell_TrayWnd") == "explorer.exe#shell_traywnd"
+    assert appid.key_for("", "TaskManagerWindow") == "#taskmanagerwindow"
+    assert appid.display_name_for("mspaint.exe") == "Paint"
+    assert appid.surface_name("Page setup") == "page setup"
+    # Every open window resolves to an identity, and an app can be found by name
+    for w in dd.list_windows()[:5]:
+        ident = appid.identify_window(w["hwnd"])
+        assert ident.key and ident.display_name
+        assert appid.find_app_window(ident.key, [w]) is w
+
+    # Schema 1 (title keys) -> schema 2 (executable keys)
+    from deskdriver.navigation.roadmap_migrate import migrate_entries
+    old = {
+        "notepad": {"elements": {"save": {"name": "Save"}}, "last_updated": 1},
+        "*notes - Notepad": {"elements": {"open": {"name": "Open"}}, "last_updated": 2,
+                             "process_info": {"exe_name": "Notepad.exe", "class_name": "Notepad"}},
+        "Page setup": {"elements": {"ok": {"name": "OK"}}, "last_updated": 3,
+                       "process_info": {"exe_name": "Notepad.exe", "class_name": "#32770"}},
+        "Untitled - Paint": {"elements": {}, "last_updated": 1},
+        "Bank_Statement.pdf - Viewer": {"elements": {"x": {}}, "last_updated": 1},
+    }
+    migrated, unmigrated = migrate_entries(old)
+    assert set(migrated) == {"notepad.exe", "notepad.exe/page setup", "mspaint.exe"}
+    assert set(migrated["notepad.exe"]["elements"]) == {"save", "open"}
+    assert migrated["notepad.exe"]["display_name"] == "Notepad"
+    assert migrated["notepad.exe/page setup"]["surface"] == "page setup"
+    assert list(unmigrated) == ["Bank_Statement.pdf - Viewer"]
+    assert "*notes - Notepad" not in str(migrated)  # window titles are not carried over
+
+    # Element matching: no reverse-substring hits ("ok" must not match "bookmark")
+    els = {"ok": 1, "bookmark this tab": 1, "save": 1, "save as": 1}
+    assert rm.match_element_key(els, "bookmark") == "bookmark this tab"
+    assert rm.match_element_key(els, "save") == "save"
+    assert rm.match_element_key({"ok": 1}, "bookmark") is None
+
+    # Drag coordinates with a bare "->" stay one step
+    steps = dd.parse_action_string("drag:10,10->200,200 | key:enter")
+    assert [st["raw"] for st in steps] == ["drag:10,10->200,200", "key:enter"]
+
+    # Per-app storage round-trip, change-only writes and deletion
+    with tempfile.TemporaryDirectory() as tmp:
+        from pathlib import Path
+        d = Path(tmp) / "ui_roadmap"
+        r = rm.UIRoadmap(directory=d, legacy_file=None)
+        r.map["Admin: Prompt"] = {"elements": {"x": {"name": "X"}}, "schema": 2}
+        r.map["taskbar"] = {"elements": {}, "schema": 2}
+        r.map["Taskbar"] = {"elements": {}, "schema": 2}
+        r.save()
+        names = sorted(f.name for f in d.glob("*.json"))
+        assert "admin-prompt.json" in names and "taskbar.json" in names and len(names) == 3
+        r2 = rm.UIRoadmap(directory=d, legacy_file=None)
+        assert r2.map == r.map
+        del r2.map["Admin: Prompt"]
+        r2.save()
+        assert not (d / "admin-prompt.json").exists()
+
+        # Two instances = two processes sharing the directory
+        rect = {"left": 0, "top": 0, "right": 100, "bottom": 100}
+        el = lambda n: {"name": n, "center_x": 5, "center_y": 5, "rect": {"width": 4, "height": 4}}  # noqa: E731
+        a = rm.UIRoadmap(directory=d, legacy_file=None)
+        b = rm.UIRoadmap(directory=d, legacy_file=None)
+        a.learn_window("Weird App", [el("from a")], rect)
+        b.learn_window("Weird App", [el("from b")], rect)  # b never saw a's write; must merge, not clobber
+        a.refresh_app("Weird App")
+        assert {"from a", "from b"} <= set(a.map["Weird App"]["elements"])
+        assert a.remove_element("Weird App", "from a")
+        b.learn_window("Weird App", [el("from b 2")], rect)  # stale b still holds "from a"
+        final = rm.UIRoadmap(directory=d, legacy_file=None).map["Weird App"]["elements"]
+        assert "from a" not in final and {"from b", "from b 2"} <= set(final)
+
+        # Document / browser tabs, web content and secrets are never cached
+        from deskdriver.navigation.element_filter import is_transient, redact_secrets
+        tab = {"name": "notes.txt. Modified.", "control_type": "TabItemControl"}
+        assert is_transient(tab, "notepad.exe")
+        assert is_transient({"name": "Gmail - Memory usage - 280 MB", "control_type": "DataItemControl"}, "brave.exe")
+        assert is_transient({"name": "reddit", "control_type": "HyperlinkControl"}, "brave.exe")
+        assert is_transient({"name": "Go", "control_type": "ButtonControl",
+                             "container_path": "pane > Chrome Legacy Window > id:wikiArticle"}, "brave.exe")
+        assert not is_transient({"name": "Go", "control_type": "ButtonControl",
+                                 "container_path": "pane > Chrome Legacy Window > id:x"}, "antigravity.exe")
+        assert is_transient({"name": "~ ai-mouse", "control_type": "TabItemControl",
+                             "container_path": "pane > id:TabView"}, "windowsterminal.exe")
+        assert is_transient({"name": "sk-ant-api03-abcDEF123. Modified", "control_type": "ButtonControl"})
+        assert not is_transient({"name": "Reload", "control_type": "ButtonControl"}, "brave.exe")
+        assert not is_transient({"name": "View", "control_type": "TabItemControl",
+                                 "container_path": "id:12320"}, "explorer.exe")
+        assert redact_secrets("key sk-ant-api03-abc_DEF-1 here") == "key [REDACTED] here"
+
+        # Accelerators in names and coordinate-tagged unnamed controls
+        from deskdriver.navigation.element_filter import normalize_name
+        assert normalize_name("Media Alt+M", 32, 41) == ("Media", "Alt+M")
+        assert normalize_name("Playback Alt+l", 88, 41) == ("Playback", "Alt+L")
+        assert normalize_name("Bold (Ctrl+B)", 0, 0) == ("Bold", "Ctrl+B")
+        assert normalize_name("Refresh (F5)", 0, 0) == ("Refresh", "F5")
+        assert normalize_name("Save", 0, 0) == ("Save", "")
+        assert normalize_name("unnamed_buttoncontrol_477_1204", 62, 985) == ("button @ 62,985", "")
+        assert normalize_name("unnamed_splitbuttoncontrol_902_732", 487, 513) == ("splitbutton @ 487,513", "")
+        q = rm.UIRoadmap(directory=d, legacy_file=None)
+        q.learn_window("Qt App", [el("Media Alt+M"), el("unnamed_buttoncontrol_900_900")], rect)
+        qe = q.map["Qt App"]["elements"]
+        assert qe["media"]["shortcut"] == "Alt+M" and qe["media"]["ai_action"] == "hotkey:alt+m"
+        assert "button @ 5,5" in qe and not any(k.startswith("unnamed_") for k in qe)
+        qe["view alt+i"] = {"name": "View Alt+i", "rel_x": 1, "rel_y": 1, "ai_action": "click:View Alt+i"}
+        assert q.normalize_names() == {"Qt App": 1} and qe["view"]["ai_action"] == "hotkey:alt+i"
+
+        # Minimized / zero-size window rects would store screen coordinates: nothing is learned
+        q.learn_window("Qt App", [el("From Zero Rect")], {"left": 0, "top": 0, "right": 0, "bottom": 0})
+        q.learn_window("Qt App", [el("From Minimized")], {"left": -32000, "top": -32000, "right": -31840, "bottom": -31972})
+        q.learn_window("Never Seen", [el("X")], {"left": 0, "top": 0, "right": 0, "bottom": 0})
+        assert "from zero rect" not in qe and "from minimized" not in qe and "Never Seen" not in q.map
+
+        a.learn_window("notepad.exe", [el("Save"), {**el("todo.txt. Modified."), "control_type": "TabItemControl"}], rect)
+        assert "save" in a.map["notepad.exe"]["elements"]
+        assert not any("todo" in k for k in a.map["notepad.exe"]["elements"])
+        a.map["notepad.exe"]["elements"]["old tab. unmodified."] = {"name": "old tab. Unmodified."}
+        assert a.prune_transient() == {"notepad.exe": 1}
+        assert "old tab. unmodified." not in rm.UIRoadmap(directory=d, legacy_file=None).map["notepad.exe"]["elements"]
+
+        # "explorer" means File Explorer, not the taskbar that shares its exe
+        a.map["explorer.exe#shell_traywnd"] = {"elements": {}, "schema": 2, "exe": "explorer.exe", "display_name": "Tray Test"}
+        a.map["explorer.exe"] = {"elements": {}, "schema": 2, "exe": "explorer.exe", "display_name": "File Explorer"}
+        assert a.resolve_app_key("explorer") == "explorer.exe"
+        assert a.resolve_app_key("tray test") == "explorer.exe#shell_traywnd"
+        from deskdriver.automation.appid import AppIdentity, app_matches
+        tray = AppIdentity("explorer.exe#shell_traywnd", "explorer.exe", "Taskbar", "shell_traywnd", "")
+        files = AppIdentity("explorer.exe", "explorer.exe", "File Explorer", "cabinetwclass", "")
+        assert not app_matches(tray, "explorer") and app_matches(tray, "taskbar")
+        assert app_matches(files, "explorer") and app_matches(files, "explorer.exe")
+    print(" -> Review regressions verified")
+
+
+def test_module_layering():
+    """Each module may only import deskdriver modules from its own layer or below."""
+    import ast
+    print("Testing module layering (paths/core -> automation -> navigation -> workflows)...")
+    ranks = {"paths": 0, "core": 1, "sync": 1, "automation": 2, "navigation": 3, "workflows": 4, "server": 5}
+    pkg = src_path / "deskdriver"
+
+    def layer_of(dotted: str):
+        parts = dotted.split(".")
+        return ranks.get(parts[1]) if len(parts) > 1 and parts[0] == "deskdriver" else None
+
+    violations = []
+    for f in pkg.rglob("*.py"):
+        rel = f.relative_to(src_path).with_suffix("")
+        mod = ".".join(rel.parts)
+        if mod == "deskdriver.__init__":
+            continue  # the package facade re-exports every layer
+        own = layer_of(mod)
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            for name in names:
+                dep = layer_of(name)
+                if own is not None and dep is not None and dep > own:
+                    violations.append(f"{mod} -> {name}")
+    assert not violations, "Layering violations: " + ", ".join(violations)
+    print(" -> No upward imports")
+
+
+def test_real_data_untouched():
+    print("Testing that the real roadmap / history / actions were not modified...")
+    assert _real_data_fingerprint() == REAL_DATA_BEFORE, "tests wrote to the real data files"
+    print(f" -> Real data untouched (tests used {TEST_DATA_DIR})")
 
 
 def run_all():
@@ -343,8 +623,13 @@ def run_all():
     test_dashboard_scan_logging()
     test_action_pipeline()
     test_application_tree()
+    test_session_recorder()
+    test_review_regressions()
+    test_module_layering()
+    test_real_data_untouched()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 
 if __name__ == "__main__":
     run_all()
+

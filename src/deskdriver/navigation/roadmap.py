@@ -1,135 +1,578 @@
 """
-Persistent UI Roadmap engine for spatial UI element caching and fast O(1) retrieval.
+Persistent UI Roadmap store: spatial UI element caching and fast O(1) retrieval.
+
+Storage only - this module has no knowledge of mouse, keyboard or windows. The
+actions built on top of it (fast_click_element, fill_input, ...) live in
+deskdriver.navigation.interact.
 """
 
+import hashlib
 import json
+import msvcrt
+import os
+import re
+import shutil
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from deskdriver.core.desktop import ensure_desktop
-from deskdriver.core.mouse import move_and_click, mouse_click, user32
-from deskdriver.automation.windows import list_windows, focus_window
-from deskdriver.navigation.fastpaths import execute_fastpath
 
-ROADMAP_FILE = Path(__file__).parent.parent.parent.parent / "ui_roadmap.json"
+from deskdriver.automation.appid import AppIdentity
+from deskdriver.navigation.element_filter import (
+    is_transient, normalize_name, prefer_shortcut, redact_secrets, storable_value,
+)
+from deskdriver.navigation.hotkeys import APP_PROFILES
+from deskdriver.navigation.roadmap_migrate import SCHEMA_VERSION, describe, migrate_entries
+from deskdriver.paths import ROADMAP_DIR, LEGACY_ROADMAP_FILE
+
+
+LOCK_FILE_NAME = ".lock"
+STALE_AFTER_MISSES = 3  # complete scans in a row an element may be missing before it's dropped
+MIN_WINDOW_SIZE = 50  # px; smaller window rects are treated as invalid by learn_window
+BACKUP_DIR_NAME = "_backup_schema1"
+UNMIGRATED_DIR_NAME = "_unmigrated"
+
+
+def match_element_key(elements: dict, query: str) -> str | None:
+    """Exact key, else the shortest cached key that contains the query as a whole word."""
+    q = query.strip().lower()
+    if not q:
+        return None
+    if q in elements:
+        return q
+    word = re.compile(r"(?<!\w)" + re.escape(q) + r"(?!\w)")
+    hits = [k for k in elements if word.search(k)]
+    return min(hits, key=len) if hits else None
+
+
+def app_file_slug(app_key: str) -> str:
+    """Filesystem-safe file stem for an app key ("Administrator: Command Prompt" -> "administrator-command-prompt")."""
+    slug = re.sub(r"[^a-z0-9._]+", "-", app_key.lower()).strip("-._")[:60]
+    return slug or "app"
+
+
+def _serialize(app_key: str, app_data: dict) -> str:
+    return json.dumps({"app_key": app_key, **app_data}, indent=2, ensure_ascii=False)
 
 
 class UIRoadmap:
-    def __init__(self, filepath: Path = ROADMAP_FILE):
-        self.filepath = filepath
-        self.map = self._load()
+    """
+    In-memory roadmap ({app_key: app_data}) persisted as one JSON file per app
+    under ui_roadmap/. Each file carries its own "app_key" so the original
+    (possibly non-filesystem-safe) key round-trips exactly.
 
-    def _load(self) -> dict:
-        if self.filepath.exists():
-            try:
-                with open(self.filepath, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {}
+    Several processes (dashboard, MCP server) and threads (session recorder) share
+    the files, so:
+    - writes are serialized by a thread lock plus a lock file in the directory;
+    - before writing an app, a version another process saved in the meantime is
+      merged in (its elements are kept unless this process also has them);
+    - lookups pick up files other processes changed (see refresh_app).
+    """
 
-    def save(self):
+    def __init__(self, directory: Path = ROADMAP_DIR, legacy_file: Path | None = LEGACY_ROADMAP_FILE):
+        self.directory = Path(directory)
+        self.legacy_file = legacy_file
+        self.map: dict[str, dict] = {}
+        self._lock = threading.RLock()
+        self._files: dict[str, str] = {}             # app_key -> file name
+        self._written: dict[str, str] = {}           # app_key -> content last read from / written to disk
+        self._stamps: dict[str, tuple] = {}          # app_key -> (mtime_ns, size) of that content
+        self._removed: dict[str, set[str]] = {}      # app_key -> element keys deleted since last save
+        self._load()
+
+    @property
+    def filepath(self) -> Path:
+        return self.directory
+
+    # ------------------------------------------------------------------ disk I/O
+
+    @contextmanager
+    def _disk_lock(self):
+        """Exclusive lock across threads and processes for read-merge-write cycles."""
+        with self._lock:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            with open(self.directory / LOCK_FILE_NAME, "a+b") as fh:
+                deadline = time.monotonic() + 5.0
+                while True:
+                    try:
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() > deadline:
+                            raise
+                        time.sleep(0.01)
+                try:
+                    yield
+                finally:
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+
+    @staticmethod
+    def _stamp(path: Path) -> tuple | None:
         try:
-            with open(self.filepath, "w", encoding="utf-8") as f:
-                json.dump(self.map, f, indent=2, ensure_ascii=False)
+            st = path.stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def _read_file(self, path: Path) -> tuple[str, dict, str] | None:
+        """(app_key, app_data, raw text) of one app file, or None if unreadable."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = f.read()
+            app_data = json.loads(raw)
+            return app_data.pop("app_key", path.stem), app_data, raw
+        except Exception:
+            return None
+
+    def _adopt(self, app_key: str, app_data: dict, path: Path, raw: str):
+        """Make a disk version the in-memory one, updating the dict in place so held references stay live."""
+        current = self.map.get(app_key)
+        if current is None:
+            self.map[app_key] = app_data
+        else:
+            current.clear()
+            current.update(app_data)
+        self._files[app_key] = path.name
+        self._written[app_key] = raw
+        self._stamps[app_key] = self._stamp(path)
+
+    def _load(self):
+        with self._lock:
+            if not self.directory.exists():
+                self._migrate_legacy()
+                return
+
+            seen = set()
+            for path in sorted(self.directory.glob("*.json")):
+                parsed = self._read_file(path)
+                if not parsed:
+                    continue
+                app_key, app_data, raw = parsed
+                seen.add(app_key)
+                if self._written.get(app_key) != raw:
+                    self._adopt(app_key, app_data, path, raw)
+            # Apps whose files were deleted on disk (by this or another process)
+            for app_key in [k for k in self._files if k not in seen]:
+                self.map.pop(app_key, None)
+                self._forget(app_key)
+
+            if any(entry.get("schema") != SCHEMA_VERSION for entry in self.map.values()):
+                self._upgrade_schema()
+
+    def _upgrade_schema(self):
+        """
+        Re-key title-based (schema 1) apps by executable. The original files are copied
+        to _backup_schema1/ first; entries that can't be attributed to a program are
+        moved to _unmigrated/ instead of being deleted.
+        """
+        with self._disk_lock():
+            backup = self.directory / BACKUP_DIR_NAME
+            backup.mkdir(exist_ok=True)
+            for name in self._files.values():
+                src = self.directory / name
+                if src.exists() and not (backup / name).exists():
+                    shutil.copy2(src, backup / name)
+
+            migrated, unmigrated = migrate_entries(dict(self.map))
+
+            if unmigrated:
+                parked = self.directory / UNMIGRATED_DIR_NAME
+                parked.mkdir(exist_ok=True)
+                for old_key, data in unmigrated.items():
+                    (parked / f"{app_file_slug(old_key)}.json").write_text(
+                        _serialize(old_key, data), encoding="utf-8"
+                    )
+
+            for old_key, name in list(self._files.items()):
+                (self.directory / name).unlink(missing_ok=True)
+                self._forget(old_key)
+            self.map.clear()
+            self.map.update(migrated)
+            for key in migrated:
+                self._write_app(key)
+
+    def _migrate_legacy(self):
+        """One-time split of the old monolithic ui_roadmap.json into per-app files."""
+        if not self.legacy_file or not self.legacy_file.exists():
+            return
+        try:
+            with open(self.legacy_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return
+        self.map.update(data)
+        self.save()
+        try:
+            self.legacy_file.replace(self.legacy_file.with_name(self.legacy_file.name + ".migrated"))
+        except Exception:
+            pass
+        self._upgrade_schema()
+
+    def _forget(self, app_key: str):
+        for d in (self._files, self._written, self._stamps, self._removed):
+            d.pop(app_key, None)
+
+    def reload(self) -> dict:
+        """Pick up changes other processes wrote. The map is updated in place and returned."""
+        self._load()
+        return self.map
+
+    def refresh_app(self, app_key: str):
+        """Re-read one app's file if another process changed it since we last saw it."""
+        name = self._files.get(app_key)
+        if not name:
+            if not self.directory.exists():
+                return
+            name = f"{app_file_slug(app_key)}.json"
+        path = self.directory / name
+        stamp = self._stamp(path)
+        if stamp is None or stamp == self._stamps.get(app_key):
+            return
+        with self._lock:
+            parsed = self._read_file(path)
+            if parsed and parsed[0] == app_key and parsed[2] != self._written.get(app_key):
+                self._adopt(app_key, parsed[1], path, parsed[2])
+            else:
+                self._stamps[app_key] = stamp
+
+    def app_file(self, app_key: str) -> Path:
+        """Path of the storage file for an app, assigning a unique name on first use."""
+        name = self._files.get(app_key)
+        if not name:
+            stem = app_file_slug(app_key)
+            name = f"{stem}.json"
+            existing = self.directory / name
+            if name in self._files.values() or (
+                existing.exists() and (self._read_file(existing) or (None,))[0] != app_key
+            ):
+                digest = hashlib.sha1(app_key.encode("utf-8")).hexdigest()[:8]
+                name = f"{stem}-{digest}.json"
+            self._files[app_key] = name
+        return self.directory / name
+
+    def _merge_from_disk(self, app_key: str, path: Path):
+        """Fold in a version another process saved after we last read/wrote this app."""
+        parsed = self._read_file(path)
+        if not parsed or parsed[0] != app_key or parsed[2] == self._written.get(app_key):
+            return
+        disk = parsed[1]
+        mine = self.map[app_key]
+        disk_elements = disk.get("elements", {})
+        # Three-way merge against the version we last saw: an element that is gone from
+        # disk and that we have not changed since was deleted elsewhere - don't revive it.
+        try:
+            base_elements = json.loads(self._written[app_key]).get("elements", {}) if app_key in self._written else {}
+        except Exception:
+            base_elements = {}
+        my_elements = {
+            k: v for k, v in mine.get("elements", {}).items()
+            if k in disk_elements or k not in base_elements or base_elements[k] != v
+        }
+        removed = self._removed.get(app_key, set())
+        elements = {k: v for k, v in disk_elements.items() if k not in removed}
+        elements.update(my_elements)
+        merged = {**disk, **mine, "elements": elements}
+        merged["last_updated"] = max(disk.get("last_updated", 0), mine.get("last_updated", 0))
+        mine.clear()
+        mine.update(merged)
+
+    def _write_app(self, app_key: str):
+        path = self.app_file(app_key)
+        self._merge_from_disk(app_key, path)
+        content = _serialize(app_key, self.map[app_key])
+        if self._written.get(app_key) == content and path.exists():
+            return
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content)
+            os.replace(tmp, path)
+            self._written[app_key] = content
+            self._stamps[app_key] = self._stamp(path)
+            self._removed.pop(app_key, None)
         except Exception:
             pass
 
-    def get_app_key(self, window_title: str) -> str:
-        """Normalize window title to identify application family."""
-        t = window_title.lower()
-        if "brave" in t:
-            return "brave"
-        if "chrome" in t:
-            return "chrome"
-        if "settings" in t:
-            return "settings"
-        if "notepad" in t:
-            return "notepad"
-        if "file explorer" in t or "configs" in t:
-            return "explorer"
-        return window_title[:30].strip()
+    def save(self, app_key: str | None = None):
+        """Write changed app files (or only app_key's) and remove files of apps deleted from the map."""
+        try:
+            with self._disk_lock():
+                keys = [app_key] if app_key is not None else list(self.map.keys())
+                for key in keys:
+                    if key in self.map:
+                        self._write_app(key)
 
-    def learn_window(self, window_title: str, elements: list[dict], window_rect: dict):
-        """Cache elements using coordinates relative to the window top-left."""
-        app_key = self.get_app_key(window_title)
-        if app_key not in self.map:
-            self.map[app_key] = {"elements": {}, "last_updated": time.time()}
+                if app_key is None:
+                    for key in [k for k in self._files if k not in self.map]:
+                        try:
+                            (self.directory / self._files[key]).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        self._forget(key)
+        except Exception:
+            pass
 
-        win_left = window_rect["left"]
-        win_top = window_rect["top"]
-        win_w = max(1, window_rect.get("right", win_left + 800) - win_left)
-        win_h = max(1, window_rect.get("bottom", win_top + 600) - win_top)
+    # ------------------------------------------------------------------ data API
 
-        for el in elements:
-            name = (el.get("name") or "").strip().lower()
-            if not name or name.startswith("("):
+    def remove_element(self, app_key: str, element_key: str) -> bool:
+        """Delete one cached element and persist that (the deletion survives cross-process merges)."""
+        with self._lock:
+            elements = self.map.get(app_key, {}).get("elements", {})
+            if element_key not in elements:
+                return False
+            del elements[element_key]
+            self._removed.setdefault(app_key, set()).add(element_key)
+            self.save(app_key)
+            return True
+
+    def prune_transient(self) -> dict[str, int]:
+        """
+        Drop cached elements that is_transient() rejects (document / browser tabs,
+        web page content, secret-looking names) and clear stored input-field values.
+        Returns {app_key: removed count}.
+        """
+        removed: dict[str, int] = {}
+        with self._lock:
+            for app_key, entry in self.map.items():
+                elements = entry.get("elements", {})
+                doomed = [k for k, el in elements.items() if is_transient(el, entry.get("exe", ""))]
+                for k in doomed:
+                    del elements[k]
+                    self._removed.setdefault(app_key, set()).add(k)
+                scrubbed = False
+                for el in elements.values():
+                    value = storable_value(el.get("control_type", ""), el.get("value", ""))
+                    if el.get("value") and value != el["value"]:
+                        el["value"] = value
+                        scrubbed = True
+                if doomed:
+                    removed[app_key] = len(doomed)
+                if doomed or scrubbed:
+                    self.save(app_key)
+        return removed
+
+    def _age_unseen(self, app_key: str, seen: set[str]):
+        """
+        Count a miss for cached elements a complete scan didn't find, but only when
+        the container they live in *was* scanned: a scan sees one state of the
+        window, and controls on another Settings page, in a closed menu or a hidden
+        pane are absent without being gone. Repeat misses are dropped.
+        """
+        elements = self.map[app_key]["elements"]
+        visible_containers = {elements[k].get("container_path") for k in seen if k in elements}
+        visible_containers.discard("")
+        visible_containers.discard(None)
+        for key in [k for k in elements if k not in seen]:
+            el = elements[key]
+            if el.get("control_type") in ("HotkeyAction", "SpatialAnchor"):
+                continue  # profile hotkeys / canvas anchors aren't found by scanning
+            if el.get("container_path") not in visible_containers:
+                continue  # its part of the window wasn't on screen this time
+            el["misses"] = el.get("misses", 0) + 1
+            if el["misses"] >= STALE_AFTER_MISSES:
+                del elements[key]
+                self._removed.setdefault(app_key, set()).add(key)
+
+    def normalize_names(self) -> dict[str, int]:
+        """
+        Re-key cached elements whose stored name normalize_name() would change
+        ("Media Alt+M" -> "media", "unnamed_buttoncontrol_477_1204" -> "button @ 62,985").
+        Returns {app_key: renamed count}.
+        """
+        renamed: dict[str, int] = {}
+        with self._lock:
+            for app_key, entry in self.map.items():
+                elements = entry.get("elements", {})
+                for old_key, el in list(elements.items()):
+                    raw = el.get("name") or old_key
+                    display, sc = normalize_name(raw, el.get("rel_x", 0), el.get("rel_y", 0))
+                    if display == raw:
+                        continue
+                    new_key = display.lower()
+                    shortcut = prefer_shortcut(sc, el.get("shortcut", ""))
+                    action = el.get("ai_action", "")
+                    if shortcut:
+                        action = f"hotkey:{shortcut.lower()}"
+                    elif action.startswith("fill:"):
+                        action = f"fill:{display}, <text>"
+                    else:
+                        action = f"click:{display}"
+                    del elements[old_key]
+                    self._removed.setdefault(app_key, set()).add(old_key)
+                    elements[new_key] = {**el, "name": display, "shortcut": shortcut, "ai_action": action}
+                    renamed[app_key] = renamed.get(app_key, 0) + 1
+                if app_key in renamed:
+                    self.save(app_key)
+        return renamed
+
+    def resolve_app_key(self, query: str) -> str | None:
+        """
+        Cached app for a user-facing name: the exact key, the executable with or
+        without ".exe", or the display name ("notepad", "Notepad", "settings").
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        if query in self.map:
+            return query
+        for key, entry in self.map.items():
+            if key.lower() == q:
+                return key
+        for key, entry in self.map.items():
+            if entry.get("surface"):
                 continue
+            exe = (entry.get("exe") or "").lower()
+            names = {(entry.get("display_name") or "").lower()}
+            # Only the main window answers to the bare exe name, not
+            # "explorer.exe#shell_traywnd" (the taskbar)
+            if key.lower() == exe:
+                names |= {exe, os.path.splitext(exe)[0]}
+            if q in names:
+                return key
+        return None
 
-            rel_x = el["center_x"] - win_left
-            rel_y = el["center_y"] - win_top
-            anchor_right = rel_x > (win_w * 0.65)
-            anchor_bottom = rel_y > (win_h * 0.65)
+    def learn_window(
+        self,
+        app: AppIdentity | str,
+        elements: list[dict],
+        window_rect: dict,
+        process_info: dict | None = None,
+        categories: dict | None = None,
+        complete: bool = False,
+    ):
+        """
+        Cache elements using coordinates relative to the window top-left.
+        `app` is the window's AppIdentity (preferred) or an app key.
+        complete=True means `elements` is everything the window shows (an untruncated
+        deep dive): cached elements missing from STALE_AFTER_MISSES such scans in a
+        row are dropped, so controls removed from the app don't linger.
+        """
+        with self._lock:
+            win_left = window_rect["left"]
+            win_top = window_rect["top"]
+            win_w = max(1, window_rect.get("right", win_left + 800) - win_left)
+            win_h = max(1, window_rect.get("bottom", win_top + 600) - win_top)
+            # Minimized (-32000) or degenerate windows: element positions can't be made
+            # window-relative, so learning them would store screen coordinates.
+            if elements and (win_w < MIN_WINDOW_SIZE or win_h < MIN_WINDOW_SIZE or win_left <= -10000):
+                return
 
-            existing_el = self.map[app_key]["elements"].get(name, {})
-            final_sc = el.get("shortcut", "") or existing_el.get("shortcut", "")
+            app_key = app.key if isinstance(app, AppIdentity) else str(app)
+            if app_key not in self.map:
+                self.map[app_key] = {"elements": {}, "last_updated": time.time(), **describe(app_key)}
+            if isinstance(app, AppIdentity):
+                self.map[app_key].update({
+                    "display_name": app.display_name,
+                    "exe": app.exe,
+                    "window_class": app.window_class,
+                    "surface": app.surface,
+                })
+            self.map[app_key]["schema"] = SCHEMA_VERSION
 
-            self.map[app_key]["elements"][name] = {
-                "name": el["name"],
-                "control_type": el["control_type"],
-                "shortcut": final_sc,
-                "rel_x": rel_x,
-                "rel_y": rel_y,
-                "anchor_right": anchor_right,
-                "anchor_bottom": anchor_bottom,
-                "dist_from_right": win_w - rel_x,
-                "dist_from_bottom": win_h - rel_y,
-                "width": el.get("rect", {}).get("width", 0),
-                "height": el.get("rect", {}).get("height", 0),
-            }
+            if process_info:
+                self.map[app_key]["process_info"] = process_info
+            if categories:
+                self.map[app_key]["categories"] = categories
 
-        # Merge standard application hotkey profiles if known
-        from deskdriver.navigation.hotkeys import APP_PROFILES
-        app_profile = APP_PROFILES.get(app_key, {})
-        for action_name, hk in app_profile.items():
-            matched_key = None
-            for k in self.map[app_key]["elements"]:
-                if action_name in k or k in action_name:
-                    matched_key = k
-                    break
-            if matched_key:
-                if not self.map[app_key]["elements"][matched_key].get("shortcut"):
-                    self.map[app_key]["elements"][matched_key]["shortcut"] = hk
-            else:
-                self.map[app_key]["elements"][action_name] = {
-                    "name": action_name.title(),
-                    "control_type": "HotkeyAction",
-                    "shortcut": hk,
-                    "rel_x": 0,
-                    "rel_y": 0,
-                    "width": 0,
-                    "height": 0,
+            exe = self.map[app_key].get("exe", "")
+            seen: set[str] = set()
+            for el in elements:
+                raw_name = (el.get("name") or "").strip()
+                if not raw_name or raw_name.startswith("(") or is_transient(el, exe):
+                    continue
+
+                rel_x = el["center_x"] - win_left
+                rel_y = el["center_y"] - win_top
+                anchor_right = rel_x > (win_w * 0.65)
+                anchor_bottom = rel_y > (win_h * 0.65)
+
+                display, name_sc = normalize_name(raw_name, rel_x, rel_y)
+                name = display.lower()
+                existing_el = self.map[app_key]["elements"].get(name, {})
+                final_sc = prefer_shortcut(name_sc, el.get("shortcut", "")) or existing_el.get("shortcut", "")
+
+                ct = el.get("control_type", "ButtonControl")
+                if final_sc:
+                    ai_action = f"hotkey:{final_sc.lower()}"
+                elif any(k in ct for k in ("Edit", "ComboBox", "Spinner", "Document")):
+                    ai_action = f"fill:{display}, <text>"
+                else:
+                    ai_action = f"click:{display}"
+                if display == raw_name and el.get("ai_action"):
+                    ai_action = el["ai_action"]
+
+                self.map[app_key]["elements"][name] = {
+                    "name": display,
+                    "control_type": ct,
+                    "shortcut": final_sc,
+                    "rel_x": rel_x,
+                    "rel_y": rel_y,
+                    "anchor_right": anchor_right,
+                    "anchor_bottom": anchor_bottom,
+                    "dist_from_right": win_w - rel_x,
+                    "dist_from_bottom": win_h - rel_y,
+                    "width": el.get("rect", {}).get("width", 0),
+                    "height": el.get("rect", {}).get("height", 0),
+                    "automation_id": el.get("automation_id", existing_el.get("automation_id", "")),
+                    "class_name": el.get("class_name", existing_el.get("class_name", "")),
+                    "help_text": redact_secrets(el.get("help_text", existing_el.get("help_text", ""))),
+                    "value": storable_value(ct, el.get("value", existing_el.get("value", ""))),
+                    "toggle_state": el.get("toggle_state", existing_el.get("toggle_state", None)),
+                    "container_path": el.get("container_path", existing_el.get("container_path", "")),
+                    "ai_action": ai_action,
+                    "is_enabled": el.get("is_enabled", existing_el.get("is_enabled", True)),
+                    "last_seen": time.time(),
+                    "misses": 0,
                 }
+                # Dropdown items only exist while their menu is open ("File" for "Save as")
+                menu_parent = el.get("menu_parent") or existing_el.get("menu_parent")
+                if menu_parent:
+                    self.map[app_key]["elements"][name]["menu_parent"] = menu_parent
+                seen.add(name)
 
-        self.map[app_key]["last_updated"] = time.time()
-        self.save()
+            if complete and seen:
+                self._age_unseen(app_key, seen)
 
+            # Merge standard application hotkey profiles if known
+            # Profiles describe main windows, not dialogs ("notepad.exe/page setup")
+            app_profile = APP_PROFILES.get(app_key, {}) if "/" not in app_key else {}
+            for action_name, hk in app_profile.items():
+                # Whole-word match only: "media information" must not tag the "media" menu
+                matched_key = match_element_key(self.map[app_key]["elements"], action_name)
+                if matched_key:
+                    if not self.map[app_key]["elements"][matched_key].get("shortcut"):
+                        self.map[app_key]["elements"][matched_key]["shortcut"] = hk
+                else:
+                    self.map[app_key]["elements"][action_name] = {
+                        "name": action_name.title(),
+                        "control_type": "HotkeyAction",
+                        "shortcut": hk,
+                        "rel_x": 0,
+                        "rel_y": 0,
+                        "width": 0,
+                        "height": 0,
+                    }
 
-    def find_cached_element(self, window_title: str, element_name: str, window_rect: dict) -> dict | None:
-        """O(1) instant lookup from roadmap memory."""
-        app_key = self.get_app_key(window_title)
+            self.map[app_key]["last_updated"] = time.time()
+            self.save(app_key)
+
+    def find_cached_element(self, app_key: str, element_name: str, window_rect: dict) -> dict | None:
+        """O(1) instant lookup from roadmap memory. window_rect is the app window's current rect."""
+        self.refresh_app(app_key)
         app_data = self.map.get(app_key)
         if not app_data:
             return None
 
-        q = element_name.strip().lower()
         elements = app_data.get("elements", {})
+        key = match_element_key(elements, element_name)
+        matched = elements.get(key) if key else None
 
-        matched = elements.get(q)
-        if not matched:
-            for k, v in elements.items():
-                if q in k or k in q:
-                    matched = v
-                    break
+        # Win32 menu items and profile hotkeys are stored without geometry; without a
+        # shortcut there is nothing to press and no real point to click.
+        if matched and not matched.get("shortcut") and not (matched.get("width") and matched.get("height")):
+            matched = None
 
         if matched:
             curr_w = window_rect.get("right", 0) - window_rect.get("left", 0)
@@ -151,6 +594,7 @@ class UIRoadmap:
                 "name": matched["name"],
                 "control_type": matched["control_type"],
                 "shortcut": matched.get("shortcut", ""),
+                "menu_parent": matched.get("menu_parent", ""),
                 "center_x": abs_x,
                 "center_y": abs_y,
                 "source": "roadmap_cache",
@@ -161,312 +605,19 @@ class UIRoadmap:
 roadmap = UIRoadmap()
 
 
-def fast_click_element(element_name: str, window_search: str = "", instant: bool = True) -> dict:
-    """
-    High-speed click on an element by name.
-    1. Checks OS Fastpaths (0 ms).
-    2. Checks Universal Hotkeys & Cached Accelerators (0.5 ms).
-    3. Resolves coordinates via Roadmap Cache (< 1 ms).
-    4. Automatically falls back to scanning and learning on cache miss.
-    """
-    ensure_desktop()
-    from deskdriver.core.keyboard import press_hotkey, COMMON_HOTKEYS
-
-    target_clean = element_name.lower().strip()
-
-    # 1. Check OS Fastpaths
-    if execute_fastpath(target_clean):
-        return {"status": "fastpath_executed", "target": element_name}
-
-    # 2. Check Universal Hotkey shortcuts
-    if target_clean in COMMON_HOTKEYS:
-        hk = COMMON_HOTKEYS[target_clean]
-        if window_search:
-            wins = list_windows()
-            for w in wins:
-                if window_search.lower() in w["title"].lower():
-                    focus_window(w["hwnd"])
-                    break
-        press_hotkey(hk)
-        return {"status": "universal_hotkey_executed", "action": element_name, "hotkey": hk}
-
-    # 3. Find target window
-    wins = list_windows()
-    target_win = None
-    if window_search:
-        q = window_search.lower()
-        for w in wins:
-            if q in w["title"].lower():
-                target_win = w
-                break
-    elif wins:
-        target_win = wins[0]
-
-    if not target_win:
-        return {"error": "Target window not found"}
-
-    focus_window(target_win["hwnd"])
-
-    # 4. Check Roadmap Cache
-    cached = roadmap.find_cached_element(target_win["title"], element_name, target_win["rect"])
-    if cached:
-        # If element has a known accelerator shortcut, use it for 10x speedup
-        if cached.get("shortcut"):
-            press_hotkey(cached["shortcut"])
-            return {"status": "accelerator_hotkey_executed", "name": cached["name"], "shortcut": cached["shortcut"]}
-
-        cx = cached["center_x"]
-        cy = cached["center_y"]
-        if instant:
-            user32.SetCursorPos(cx, cy)
-            mouse_click()
-        else:
-            move_and_click(cx, cy, smooth=True, duration=0.15)
-        return {"status": "clicked_from_roadmap", "name": cached["name"], "x": cx, "y": cy, "source": "cache"}
+def __getattr__(name):
+    """Backward compatibility: the roadmap actions moved to deskdriver.navigation.interact."""
+    if name in _MOVED_TO_INTERACT:
+        from deskdriver.navigation import interact
+        return getattr(interact, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-    # 4. Cache miss: Scan, learn, and click
-    from deskdriver.automation.uia import list_clickable_elements
-
-    elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
-    matched = None
-    q = element_name.lower().strip()
-    for el in elements:
-        if q in el["name"].lower():
-            matched = el
-            break
-
-    if matched:
-        cx = matched["center_x"]
-        cy = matched["center_y"]
-        if instant:
-            user32.SetCursorPos(cx, cy)
-            mouse_click()
-        else:
-            move_and_click(cx, cy, smooth=True, duration=0.15)
-        return {"status": "clicked_and_learned", "name": matched["name"], "x": cx, "y": cy, "source": "scan"}
-
-    return {"error": f"Element {element_name!r} not found in window {target_win['title']!r}"}
- 
- 
-def fill_input(
-    element_name: str,
-    text: str,
-    window_search: str = "",
-    submit: bool = False,
-    clear_existing: bool = True,
-    instant: bool = True,
-) -> dict:
-    """
-    Combined fluid action for AI:
-    1. Focuses window and clicks directly into the input control (via cache or fast UIA scan).
-    2. Clears any existing text (Ctrl+A, Backspace) if clear_existing is True.
-    3. Types Unicode text.
-    4. Optionally submits with Enter if submit=True.
-    """
-    click_res = fast_click_element(element_name, window_search=window_search, instant=instant)
-    if "error" in click_res:
-        return click_res
-
-    time.sleep(0.04)
-    from deskdriver.core.keyboard import press_hotkey, type_text
-
-    if clear_existing:
-        press_hotkey("ctrl+a")
-        time.sleep(0.02)
-        press_hotkey("backspace")
-        time.sleep(0.02)
-
-    type_text(text, enter=submit)
-    return {
-        "status": "input_filled",
-        "element": element_name,
-        "text_length": len(text),
-        "submitted": submit,
-        "click_details": click_res,
-    }
-
-
-def record_element_at_cursor(custom_name: str = "") -> dict:
-    """
-    Record on Hover: captures the interactive element directly under the cursor,
-    calculates responsive edge-anchors, and persists it into ui_roadmap.json.
-    """
-    from deskdriver.core.mouse import get_mouse_position
-    from deskdriver.automation.uia import inspect_at
-    from deskdriver.automation.windows import list_windows
-
-    x, y = get_mouse_position()
-    info = inspect_at(x, y)
-    win_title = info.get("window_title", "")
-
-    # Locate window bounding box
-    win_rect = None
-    if win_title:
-        for w in list_windows():
-            if win_title.lower() in w["title"].lower():
-                win_rect = w["rect"]
-                break
-    if not win_rect:
-        win_rect = {"left": 0, "top": 0, "right": 1920, "bottom": 1080}
-
-    rect = info.get("bounding_rect") or {"left": x - 10, "top": y - 10, "width": 20, "height": 20}
-    name = custom_name.strip() or info.get("name", "").strip() or f"Control_{x}_{y}"
-
-    element_dict = {
-        "name": name,
-        "control_type": info.get("control_type", "CustomControl"),
-        "center_x": rect.get("left", x) + max(1, rect.get("width", 20) // 2),
-        "center_y": rect.get("top", y) + max(1, rect.get("height", 20) // 2),
-        "rect": rect,
-    }
-
-    roadmap.learn_window(win_title or "CustomApp", [element_dict], win_rect)
-    return {
-        "status": "element_recorded",
-        "app": roadmap.get_app_key(win_title or "CustomApp"),
-        "element": element_dict["name"],
-        "control_type": element_dict["control_type"],
-        "center_x": element_dict["center_x"],
-        "center_y": element_dict["center_y"],
-    }
-
-
-def wait_for_element(
-    element_name: str,
-    window_search: str = "",
-    timeout: float = 3.0,
-    poll_interval: float = 0.05,
-) -> dict | None:
-    """
-    Poll until an element becomes available in the target window or timeout expires.
-    Checks roadmap cache first, then scans UIA tree dynamically.
-    Returns the resolved element dict with center coordinates, or None on timeout.
-    """
-    from deskdriver.automation.windows import list_windows
-    from deskdriver.automation.uia import list_clickable_elements
-
-    start = time.time()
-    while time.time() - start < timeout:
-        wins = list_windows()
-        target_win = None
-        if window_search:
-            q = window_search.lower()
-            for w in wins:
-                if q in w["title"].lower():
-                    target_win = w
-                    break
-        elif wins:
-            target_win = wins[0]
-
-        if target_win:
-            cached = roadmap.find_cached_element(target_win["title"], element_name, target_win["rect"])
-            if cached:
-                return cached
-
-            elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
-            q_el = element_name.lower().strip()
-            for el in elements:
-                if q_el in el["name"].lower():
-                    roadmap.learn_window(target_win["title"], [el], target_win["rect"])
-                    return el
-
-        time.sleep(poll_interval)
-    return None
-
-
-def wait_and_click(
-    element_name: str,
-    window_search: str = "",
-    timeout: float = 3.0,
-    instant: bool = True,
-) -> dict:
-    """
-    Wait for an element to appear in a window and click it immediately (atomic agent action).
-    """
-    el = wait_for_element(element_name, window_search=window_search, timeout=timeout)
-    if not el:
-        return {"error": f"Timed out waiting for element {element_name!r} after {timeout}s"}
-    return fast_click_element(element_name, window_search=window_search, instant=instant)
-
-
-def auto_record_window(
-    window_search: str = "",
-    move_cursor: bool = True,
-    max_elements: int = 150,
-) -> dict:
-    """
-    Automatically discovers interactive controls in a target application,
-    smoothly glides the mouse cursor over each control in sequence to verify it visually,
-    and indexes all coordinates into ui_roadmap.json.
-    """
-    from deskdriver.core.mouse import move_mouse
-    from deskdriver.automation.windows import list_windows, focus_window
-    from deskdriver.automation.uia import list_clickable_elements
-    import winsound
-
-    wins = list_windows()
-    target_win = None
-    if window_search:
-        q = window_search.lower()
-        for w in wins:
-            if q in w["title"].lower():
-                target_win = w
-                break
-    elif wins:
-        for w in wins:
-            t = w["title"].lower()
-            if "dashboard" not in t and "cmd" not in t and "terminal" not in t:
-                target_win = w
-                break
-        if not target_win:
-            target_win = wins[0]
-
-    if not target_win:
-        return {"error": "No target window found"}
-
-    focus_window(target_win["hwnd"])
-    time.sleep(0.15)
-
-    app_key = roadmap.get_app_key(target_win["title"])
-    existing_elements = set(roadmap.map.get(app_key, {}).get("elements", {}).keys())
-
-    elements = list_clickable_elements(window_search=target_win["title"], max_elements=max_elements)
-    recorded_names = []
-    new_names = []
-
-    for el in elements:
-        name = (el.get("name") or "").strip()
-        clean_key = name.lower()
-        if clean_key and clean_key not in existing_elements:
-            new_names.append(name)
-            existing_elements.add(clean_key)
-
-        cx = el["center_x"]
-        cy = el["center_y"]
-        if move_cursor and cx > 0 and cy > 0:
-            move_mouse(cx, cy, smooth=True, duration=0.08)
-            time.sleep(0.02)
-
-        roadmap.learn_window(target_win["title"], [el], target_win["rect"])
-        recorded_names.append(name)
-
-    roadmap.save()
-    try:
-        winsound.MessageBeep(0)
-    except Exception:
-        pass
-
-    return {
-        "status": "auto_recorded",
-        "app": app_key,
-        "window_title": target_win["title"],
-        "recorded_elements": recorded_names,
-        "new_elements": new_names,
-        "new_count": len(new_names),
-        "count": len(recorded_names),
-    }
-
-
-
-
+_MOVED_TO_INTERACT = {
+    "fast_click_element",
+    "fill_input",
+    "record_element_at_cursor",
+    "wait_for_element",
+    "wait_and_click",
+    "auto_record_window",
+}
