@@ -354,12 +354,22 @@ class UIRoadmap:
         return removed
 
     def _age_unseen(self, app_key: str, seen: set[str]):
-        """Count a miss for every positioned element a complete scan didn't find; drop repeat misses."""
+        """
+        Count a miss for cached elements a complete scan didn't find, but only when
+        the container they live in *was* scanned: a scan sees one state of the
+        window, and controls on another Settings page, in a closed menu or a hidden
+        pane are absent without being gone. Repeat misses are dropped.
+        """
         elements = self.map[app_key]["elements"]
+        visible_containers = {elements[k].get("container_path") for k in seen if k in elements}
+        visible_containers.discard("")
+        visible_containers.discard(None)
         for key in [k for k in elements if k not in seen]:
             el = elements[key]
             if el.get("control_type") in ("HotkeyAction", "SpatialAnchor"):
                 continue  # profile hotkeys / canvas anchors aren't found by scanning
+            if el.get("container_path") not in visible_containers:
+                continue  # its part of the window wasn't on screen this time
             el["misses"] = el.get("misses", 0) + 1
             if el["misses"] >= STALE_AFTER_MISSES:
                 del elements[key]

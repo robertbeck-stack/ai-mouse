@@ -55,12 +55,20 @@ def test_names_are_normalized_and_input_values_dropped(store):
 
 
 def test_complete_scans_drop_elements_missing_three_times(store):
-    store.learn_window("App", [el("Old"), el("Kept")], RECT, complete=True)
+    store.learn_window("App", [el("Old", container_path="toolbar"), el("Kept", container_path="toolbar")], RECT, complete=True)
     for i in range(rm.STALE_AFTER_MISSES - 1):
-        store.learn_window("App", [el("Kept")], RECT, complete=True)
+        store.learn_window("App", [el("Kept", container_path="toolbar")], RECT, complete=True)
         assert "old" in store.map["App"]["elements"]
-    store.learn_window("App", [el("Kept")], RECT, complete=True)
+    store.learn_window("App", [el("Kept", container_path="toolbar")], RECT, complete=True)
     assert "old" not in reopen(store).map["App"]["elements"]
+
+
+def test_controls_of_a_part_not_on_screen_are_not_aged(store):
+    # Settings: deep dives of the System page must not erase what was learned on Bluetooth
+    store.learn_window("App", [el("Pair device", container_path="page:bluetooth")], RECT, complete=True)
+    for _ in range(rm.STALE_AFTER_MISSES + 2):
+        store.learn_window("App", [el("Display", container_path="page:system")], RECT, complete=True)
+    assert store.map["App"]["elements"]["pair device"]["misses"] == 0
 
 
 def test_partial_scans_never_drop_elements(store):
@@ -71,9 +79,10 @@ def test_partial_scans_never_drop_elements(store):
 
 
 def test_seeing_an_element_again_resets_its_misses(store):
-    store.learn_window("App", [el("Flaky")], RECT, complete=True)
-    store.learn_window("App", [el("X")], RECT, complete=True)
-    store.learn_window("App", [el("Flaky"), el("X")], RECT, complete=True)
+    store.learn_window("App", [el("Flaky", container_path="bar")], RECT, complete=True)
+    store.learn_window("App", [el("X", container_path="bar")], RECT, complete=True)
+    assert store.map["App"]["elements"]["flaky"]["misses"] == 1
+    store.learn_window("App", [el("Flaky", container_path="bar"), el("X", container_path="bar")], RECT, complete=True)
     assert store.map["App"]["elements"]["flaky"]["misses"] == 0
 
 
