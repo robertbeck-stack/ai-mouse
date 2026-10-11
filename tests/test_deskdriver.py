@@ -510,7 +510,9 @@ def test_review_regressions():
         assert is_transient({"name": "Gmail - Memory usage - 280 MB", "control_type": "DataItemControl"}, "brave.exe")
         assert is_transient({"name": "reddit", "control_type": "HyperlinkControl"}, "brave.exe")
         assert is_transient({"name": "Go", "control_type": "ButtonControl",
-                             "container_path": "pane > Chrome Legacy Window > id:wikiArticle"}, "antigravity.exe")
+                             "container_path": "pane > Chrome Legacy Window > id:wikiArticle"}, "brave.exe")
+        assert not is_transient({"name": "Go", "control_type": "ButtonControl",
+                                 "container_path": "pane > Chrome Legacy Window > id:x"}, "antigravity.exe")
         assert is_transient({"name": "~ ai-mouse", "control_type": "TabItemControl",
                              "container_path": "pane > id:TabView"}, "windowsterminal.exe")
         assert is_transient({"name": "sk-ant-api03-abcDEF123. Modified", "control_type": "ButtonControl"})

@@ -481,17 +481,9 @@ def deep_dive_app(
         else:
             categories["others"].append(name)
 
-    # 5. Check newly discovered elements against existing roadmap
-    existing_elements = set(roadmap.map.get(app_key, {}).get("elements", {}).keys())
-    new_elements = []
-    for item in all_discovered:
-        name = (item.get("name") or "").strip()
-        clean_key = name.lower()
-        if clean_key and clean_key not in existing_elements:
-            new_elements.append(name)
-            existing_elements.add(clean_key)
-
-    # 6. Save directly into persistent UI Roadmap
+    # 5. Save into the roadmap. New / cached counts come from what was actually
+    # stored: learn_window drops transient content and renames some controls.
+    before = set(roadmap.map.get(app_key, {}).get("elements", {}))
     roadmap.learn_window(
         identity,
         elements=all_discovered,
@@ -500,13 +492,16 @@ def deep_dive_app(
         categories={k: len(v) for k, v in categories.items()},
         complete=len(all_discovered) < max_elements,
     )
+    stored = roadmap.map.get(app_key, {}).get("elements", {})
+    new_elements = [stored[k].get("name", k) for k in stored if k not in before]
+    cached_names = [el.get("name", "") for el in stored.values() if el.get("control_type") != "HotkeyAction"]
 
     duration = round(time.perf_counter() - t0, 2)
 
     # 7. Record into unified scan history
-    summary = f"Deep Dive indexed {len(all_discovered)} controls ({len(categories['shortcuts'])} shortcuts, {specs['exe_name'] or 'win32'}, PID: {specs['pid']})"
+    summary = f"Deep Dive found {len(all_discovered)} controls, {len(cached_names)} cached ({len(categories['shortcuts'])} shortcuts, {specs['exe_name'] or 'win32'}, PID: {specs['pid']})"
     if len(new_elements) > 0:
-        summary = f"Deep Dive indexed {len(all_discovered)} controls (✨ {len(new_elements)} newly discovered, {specs['exe_name']}, PID: {specs['pid']})"
+        summary = f"Deep Dive found {len(all_discovered)} controls, {len(cached_names)} cached (✨ {len(new_elements)} new, {specs['exe_name']}, PID: {specs['pid']})"
 
     record_scan_log(
         action="Deep Dive",
@@ -516,7 +511,7 @@ def deep_dive_app(
         new_count=len(new_elements),
         new_items=new_elements[:20],
         shortcuts_count=len(categories["shortcuts"]),
-        items=[item["name"] for item in all_discovered[:30]],
+        items=cached_names[:30],
         duration=duration,
         status="success",
     )

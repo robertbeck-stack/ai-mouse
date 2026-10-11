@@ -5,7 +5,8 @@ The roadmap stores controls at fixed window-relative positions, so it should onl
 hold an app's own UI. Two kinds of elements don't fit:
 
   * transient content: open document / browser tabs ("notes.txt. Modified.",
-    "Inbox - Gmail - Memory usage - 280 MB") and anything inside a web page.
+    "Inbox - Gmail - Memory usage - 280 MB") and web pages shown in a browser
+    (Electron apps render their own UI the same way; that is kept).
     Their names and positions change every time, so a cached hit would click the
     wrong thing, and they'd fill the store with page titles.
   * secrets: names that look like API keys or tokens (a document tab named after
@@ -65,11 +66,14 @@ def is_transient(element: dict, exe: str = "") -> bool:
         return True
     if any(p.search(name) for p in TRANSIENT_NAME_PATTERNS):
         return True
-    if any(m in container for m in WEB_CONTENT_MARKERS):
+    # Web pages inside a browser are content. In Electron apps (Claude, VS Code,
+    # Antigravity, Discord) the same Chromium surface *is* the app's UI, so keep it.
+    browser = (exe or "").lower() in BROWSER_EXES
+    if browser and any(m in container for m in WEB_CONTENT_MARKERS):
         return True
     if ct == "TabItemControl" and DOCUMENT_TAB_CONTAINERS.search(container):
         return True
-    if (exe or "").lower() in BROWSER_EXES and ct in BROWSER_CONTENT_TYPES:
+    if browser and ct in BROWSER_CONTENT_TYPES:
         return True
     return False
 
