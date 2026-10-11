@@ -95,6 +95,18 @@ APP_PROFILES = {
         "forward": "Alt+Right",
         "up one folder": "Alt+Up",
     },
+    "polytopia": {
+        "end turn / confirm": "Space",
+        "cycle next unit": "Tab",
+        "game menu / cancel": "Esc",
+        "zoom in": "+",
+        "zoom out": "-",
+        "pan camera up": "W",
+        "pan camera left": "A",
+        "pan camera down": "S",
+        "pan camera right": "D",
+        "quick confirm": "Enter",
+    },
 }
 
 

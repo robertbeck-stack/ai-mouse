@@ -41,6 +41,7 @@ FASTPATHS = {
     "paint": "mspaint.exe",
     "store": "ms-windows-store:",
     "microsoft store": "ms-windows-store:",
+    "polytopia": r"C:\Users\rober\Downloads\The.Battle.of.Polytopia.v2.3.5.9320\Polytopia.exe",
 }
 
 

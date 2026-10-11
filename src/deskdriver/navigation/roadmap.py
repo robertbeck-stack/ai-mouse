@@ -46,6 +46,8 @@ class UIRoadmap:
             return "Microsoft Store"
         if "paint" in t:
             return "paint"
+        if "polytopia" in t:
+            return "Polytopia"
         if "brave" in t:
             return "brave"
         if "chrome" in t:
