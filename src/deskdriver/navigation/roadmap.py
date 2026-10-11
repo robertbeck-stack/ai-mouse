@@ -27,6 +27,11 @@ class UIRoadmap:
                 pass
         return {}
 
+    def reload(self) -> dict:
+        """Reload roadmap cache directly from disk to capture external changes."""
+        self.map = self._load()
+        return self.map
+
     def save(self):
         try:
             with open(self.filepath, "w", encoding="utf-8") as f:
@@ -37,6 +42,10 @@ class UIRoadmap:
     def get_app_key(self, window_title: str) -> str:
         """Normalize window title to identify application family."""
         t = window_title.lower()
+        if "store" in t:
+            return "Microsoft Store"
+        if "paint" in t:
+            return "paint"
         if "brave" in t:
             return "brave"
         if "chrome" in t:
@@ -49,11 +58,23 @@ class UIRoadmap:
             return "explorer"
         return window_title[:30].strip()
 
-    def learn_window(self, window_title: str, elements: list[dict], window_rect: dict):
+    def learn_window(
+        self,
+        window_title: str,
+        elements: list[dict],
+        window_rect: dict,
+        process_info: dict | None = None,
+        categories: dict | None = None,
+    ):
         """Cache elements using coordinates relative to the window top-left."""
         app_key = self.get_app_key(window_title)
         if app_key not in self.map:
             self.map[app_key] = {"elements": {}, "last_updated": time.time()}
+
+        if process_info:
+            self.map[app_key]["process_info"] = process_info
+        if categories:
+            self.map[app_key]["categories"] = categories
 
         win_left = window_rect["left"]
         win_top = window_rect["top"]
@@ -73,9 +94,17 @@ class UIRoadmap:
             existing_el = self.map[app_key]["elements"].get(name, {})
             final_sc = el.get("shortcut", "") or existing_el.get("shortcut", "")
 
+            ct = el.get("control_type", "ButtonControl")
+            if final_sc:
+                ai_action = f"hotkey:{final_sc.lower()}"
+            elif any(k in ct for k in ("Edit", "ComboBox", "Spinner", "Document")):
+                ai_action = f"fill:{el.get('name', name)}, <text>"
+            else:
+                ai_action = f"click:{el.get('name', name)}"
+
             self.map[app_key]["elements"][name] = {
-                "name": el["name"],
-                "control_type": el["control_type"],
+                "name": el.get("name", name),
+                "control_type": ct,
                 "shortcut": final_sc,
                 "rel_x": rel_x,
                 "rel_y": rel_y,
@@ -85,6 +114,14 @@ class UIRoadmap:
                 "dist_from_bottom": win_h - rel_y,
                 "width": el.get("rect", {}).get("width", 0),
                 "height": el.get("rect", {}).get("height", 0),
+                "automation_id": el.get("automation_id", existing_el.get("automation_id", "")),
+                "class_name": el.get("class_name", existing_el.get("class_name", "")),
+                "help_text": el.get("help_text", existing_el.get("help_text", "")),
+                "value": el.get("value", existing_el.get("value", "")),
+                "toggle_state": el.get("toggle_state", existing_el.get("toggle_state", None)),
+                "container_path": el.get("container_path", existing_el.get("container_path", "")),
+                "ai_action": el.get("ai_action", ai_action),
+                "is_enabled": el.get("is_enabled", existing_el.get("is_enabled", True)),
             }
 
         # Merge standard application hotkey profiles if known
@@ -364,6 +401,12 @@ def wait_for_element(
             if cached:
                 return cached
 
+            if not window_search:
+                for w in wins:
+                    cached_other = roadmap.find_cached_element(w["title"], element_name, w["rect"])
+                    if cached_other:
+                        return cached_other
+
             elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
             q_el = element_name.lower().strip()
             for el in elements:
@@ -392,80 +435,26 @@ def wait_and_click(
 
 def auto_record_window(
     window_search: str = "",
-    move_cursor: bool = True,
+    move_cursor: bool = False,
     max_elements: int = 150,
 ) -> dict:
     """
-    Automatically discovers interactive controls in a target application,
-    smoothly glides the mouse cursor over each control in sequence to verify it visually,
-    and indexes all coordinates into ui_roadmap.json.
+    Quiet, non-intrusive scan alias. Discovers and indexes application controls
+    without moving the physical mouse cursor.
     """
-    from deskdriver.core.mouse import move_mouse
-    from deskdriver.automation.windows import list_windows, focus_window
-    from deskdriver.automation.uia import list_clickable_elements
-    import winsound
-
-    wins = list_windows()
-    target_win = None
-    if window_search:
-        q = window_search.lower()
-        for w in wins:
-            if q in w["title"].lower():
-                target_win = w
-                break
-    elif wins:
-        for w in wins:
-            t = w["title"].lower()
-            if "dashboard" not in t and "cmd" not in t and "terminal" not in t:
-                target_win = w
-                break
-        if not target_win:
-            target_win = wins[0]
-
-    if not target_win:
-        return {"error": "No target window found"}
-
-    focus_window(target_win["hwnd"])
-    time.sleep(0.15)
-
-    app_key = roadmap.get_app_key(target_win["title"])
-    existing_elements = set(roadmap.map.get(app_key, {}).get("elements", {}).keys())
-
-    elements = list_clickable_elements(window_search=target_win["title"], max_elements=max_elements)
-    recorded_names = []
-    new_names = []
-
-    for el in elements:
-        name = (el.get("name") or "").strip()
-        clean_key = name.lower()
-        if clean_key and clean_key not in existing_elements:
-            new_names.append(name)
-            existing_elements.add(clean_key)
-
-        cx = el["center_x"]
-        cy = el["center_y"]
-        if move_cursor and cx > 0 and cy > 0:
-            move_mouse(cx, cy, smooth=True, duration=0.08)
-            time.sleep(0.02)
-
-        roadmap.learn_window(target_win["title"], [el], target_win["rect"])
-        recorded_names.append(name)
-
-    roadmap.save()
-    try:
-        winsound.MessageBeep(0)
-    except Exception:
-        pass
-
-    return {
-        "status": "auto_recorded",
-        "app": app_key,
-        "window_title": target_win["title"],
-        "recorded_elements": recorded_names,
-        "new_elements": new_names,
-        "new_count": len(new_names),
-        "count": len(recorded_names),
-    }
+    from deskdriver.navigation.deepdive import deep_dive_app
+    res = deep_dive_app(window_search=window_search, max_elements=max_elements)
+    if isinstance(res, dict) and res.get("status") == "deep_dive_complete":
+        return {
+            "status": "auto_recorded",
+            "app": res.get("app", ""),
+            "window_title": res.get("window_title", ""),
+            "recorded_elements": [e.get("name") for e in res.get("discovered_elements", []) if e.get("name")],
+            "new_elements": res.get("new_elements", []),
+            "new_count": res.get("new_count", 0),
+            "count": res.get("total_elements", 0),
+        }
+    return res
 
 
 

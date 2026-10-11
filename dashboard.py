@@ -858,33 +858,69 @@ HTML_CONTENT = """<!DOCTYPE html>
 
             const elements = Object.values(appData.elements || {});
             const hotkeyElements = elements.filter(e => e.shortcut);
+            const proc = appData.process_info || {};
+
+            const btnCount = elements.filter(e => /button|toolbar/i.test(e.control_type || '')).length;
+            const menuCount = elements.filter(e => /menu/i.test(e.control_type || '')).length;
+            const inputCount = elements.filter(e => /edit|combobox|spinner|document/i.test(e.control_type || '')).length;
+            const tabCount = elements.filter(e => /tab|list|tree|item/i.test(e.control_type || '')).length;
+            const toggleCount = elements.filter(e => /check|radio|toggle/i.test(e.control_type || '')).length;
 
             let hkRows = '';
             for (const h of hotkeyElements) {
+                const actionCode = h.ai_action || `hotkey:${h.shortcut.toLowerCase()}`;
                 hkRows += `
                     <tr>
                         <td><strong>${h.name}</strong></td>
                         <td><kbd class="kbd-cap">${h.shortcut.toUpperCase()}</kbd></td>
+                        <td><code style="background:#f0f2f5; padding:2px 6px; border-radius:3px; font-size:11.5px; color:#0b5cab;">${actionCode}</code></td>
                         <td><span style="color: var(--success); font-weight: 600;">0.5 ms</span></td>
-                        <td><button class="btn-wiki" onclick="triggerHotkey('${h.shortcut}')">Test / Press</button></td>
+                        <td>
+                            <button class="btn-wiki" onclick="triggerHotkey('${h.shortcut}')">Test / Press</button>
+                            <button class="btn-wiki" style="font-size:11px; padding:2px 6px; margin-left:4px;" onclick="copyAndToast('${actionCode}')">Copy</button>
+                        </td>
                     </tr>
                 `;
             }
 
             let elRows = '';
             for (const el of elements) {
-                const scBadge = el.shortcut ? `<kbd class="kbd-cap">${el.shortcut}</kbd>` : '<span style="color: var(--text-muted); font-size: 11px;">Mouse click</span>';
-                const anchorTxt = el.anchor_right ? '<span style="color: var(--accent);">Right</span>' : 'Top-Left';
+                const isRight = el.anchor_right;
+                const isBottom = el.anchor_bottom;
+                let anchorTxt = '<span style="color: var(--text-muted); font-size: 11px;">Top-Left</span>';
+                if (isRight && isBottom) anchorTxt = '<span class="scan-badge scan-badge-actionpipeline">Right-Bottom</span>';
+                else if (isRight) anchorTxt = '<span class="scan-badge scan-badge-deepdive">Right-Anchor</span>';
+                else if (isBottom) anchorTxt = '<span class="scan-badge scan-badge-systemprelearn">Bottom-Anchor</span>';
+
+                const scBadge = el.shortcut ? `<kbd class="kbd-cap">${el.shortcut.toUpperCase()}</kbd>` : '<span style="color: var(--text-muted); font-size: 11px;">&mdash;</span>';
+                const actionCode = el.ai_action || (el.shortcut ? `hotkey:${el.shortcut.toLowerCase()}` : `click:${el.name}`);
+                const helpTooltip = el.help_text ? ` title="${el.help_text.replace(/"/g, '&quot;')}"` : '';
+
                 elRows += `
-                    <tr>
-                        <td><strong>${el.name}</strong></td>
+                    <tr class="ctrl-row" data-type="${(el.control_type || '').toLowerCase()}" data-shortcut="${el.shortcut ? '1' : '0'}"${helpTooltip}>
+                        <td>
+                            <strong>${el.name}</strong>
+                            ${el.help_text ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">ℹ️ ${el.help_text}</div>` : ''}
+                            ${el.container_path ? `<div style="font-size:10.5px; color:#8c9196; margin-top:1px;">📂 ${el.container_path}</div>` : ''}
+                        </td>
                         <td><code>${el.control_type}</code></td>
-                        <td><code>rel: (${el.rel_x}, ${el.rel_y})</code></td>
-                        <td>${anchorTxt}</td>
+                        <td>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <code style="background:#f0f2f5; padding:2px 6px; border-radius:3px; font-size:11.5px; color:#0b5cab;">${actionCode}</code>
+                                <button class="btn-wiki" style="font-size:10.5px; padding:1px 5px;" onclick="copyAndToast('${actionCode.replace(/'/g, "\\'")}')">Copy</button>
+                            </div>
+                        </td>
+                        <td><code>rel: (${el.rel_x}, ${el.rel_y})</code> <span style="margin-left:4px;">${anchorTxt}</span></td>
                         <td>${scBadge}</td>
                     </tr>
                 `;
             }
+
+            const procRows = proc.pid ? `
+                <tr><th>Process</th><td><code>${proc.exe_name || 'N/A'}</code> (PID: ${proc.pid})</td></tr>
+                <tr><th>Window Class</th><td><code>${proc.class_name || 'N/A'}</code></td></tr>
+                <tr><th>Resolution & DPI</th><td>${proc.dpi ? proc.dpi + ' DPI' : '96 DPI'} &bull; ${proc.architecture || 'x64'}</td></tr>
+            ` : '';
 
             container.innerHTML = `
                 <div class="article-tabs-bar">
@@ -906,6 +942,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <div class="infobox-image">🖥️</div>
                     <table>
                         <tr><th>Family</th><td>${appKey}</td></tr>
+                        ${procRows}
                         <tr><th>Indexed Controls</th><td><strong>${elements.length}</strong> items</td></tr>
                         <tr><th>Shortcuts</th><td><strong>${hotkeyElements.length}</strong> hotkeys</td></tr>
                         <tr><th>Positioning</th><td>Relative + Anchors</td></tr>
@@ -917,17 +954,16 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;">
                         <div>
                             <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)}</h1>
-                            <div class="article-tagline">From DeskDriver Wiki, the free encyclopedia</div>
+                            <div class="article-tagline">From DeskDriver Wiki, the free desktop automation encyclopedia</div>
                         </div>
                         <div style="display: flex; gap: 8px; margin-top: 6px;">
-                            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive('${appKey}')" title="Exhaustive deep dive: learn every menu, button, and shortcut in ${appKey}">🔬 Deep Dive</button>
-                            <button id="btnAutoRecord" class="btn-wiki" onclick="triggerAutoMoveRecord('${appKey}')" title="Automatically move mouse over ${appKey} controls and record into Wikipedia">🎯 Auto-Tour</button>
+                            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive('${appKey}')" title="Exhaustive deep dive: inspect process specs, menus, toolbars, buttons, inputs, and shortcuts">🔬 Deep Dive</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="hatnote">
-                    "<em>${appKey} (software)</em>" redirects here. This article documents interactive controls and keyboard accelerators indexed for <strong>${appKey}</strong>.
+                    "<em>${appKey} (software)</em>" redirects here. This article documents interactive controls, process specs, and keyboard accelerators indexed for <strong>${appKey}</strong>.
                 </div>
 
                 <div class="toc-box">
@@ -935,35 +971,46 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <ul class="toc-list">
                         <li class="toc-item"><a class="toc-link" href="#sec-overview">1 Overview</a></li>
                         <li class="toc-item"><a class="toc-link" href="#sec-shortcuts">2 Keyboard Accelerators (${hotkeyElements.length})</a></li>
-                        <li class="toc-item"><a class="toc-link" href="#sec-controls">3 Spatial UI Elements (${elements.length})</a></li>
+                        <li class="toc-item"><a class="toc-link" href="#sec-controls">3 Spatial UI Elements & Recipes (${elements.length})</a></li>
                         <li class="toc-item"><a class="toc-link" href="#sec-tree">4 Dynamic Hierarchy Tree & Action Chains</a></li>
                     </ul>
                 </div>
 
                 <h2 class="wiki-h2" id="sec-overview">1 Overview</h2>
                 <p>
-                    <strong>${appKey}</strong> has been indexed into the DeskDriver roadmap cache. AI agents can resolve coordinates for this application in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
+                    <strong>${appKey}</strong> has been deeply inspected and indexed into the DeskDriver roadmap cache. AI agents can resolve coordinates and execute zero-token action recipes in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
                 </p>
 
                 <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators</h2>
                 <p style="color: var(--text-muted); margin-bottom: 12px;">Mapped hotkeys allow instant 0.5 ms actions without cursor movement:</p>
                 <table class="wikitable">
                     <thead>
-                        <tr><th>Action / Control</th><th>Accelerator Key</th><th>Latency</th><th>Test</th></tr>
+                        <tr><th>Action / Control</th><th>Accelerator Key</th><th>Action Recipe</th><th>Latency</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
-                        ${hkRows || '<tr><td colspan="4" style="color: var(--text-muted);">No specific hotkeys mapped yet.</td></tr>'}
+                        ${hkRows || '<tr><td colspan="5" style="color: var(--text-muted);">No specific hotkeys mapped yet.</td></tr>'}
                     </tbody>
                 </table>
 
-                <h2 class="wiki-h2" id="sec-controls">3 Spatial UI Elements & Coordinates</h2>
-                <p style="color: var(--text-muted); margin-bottom: 12px;">Full list of interactive buttons, menu items, and input controls mapped for <strong>${appKey}</strong>:</p>
-                <table class="wikitable">
+                <h2 class="wiki-h2" id="sec-controls">3 Spatial UI Elements & Recipes</h2>
+                <p style="color: var(--text-muted); margin-bottom: 12px;">Full list of interactive controls mapped for <strong>${appKey}</strong> with zero-token action recipes:</p>
+
+                <div class="wiki-filter-bar" style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button class="btn-wiki btn-filter active" onclick="filterCtrlTable('all', this)">All (${elements.length})</button>
+                    ${menuCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('menu', this)">📂 Menus (${menuCount})</button>` : ''}
+                    ${btnCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('button', this)">🔘 Buttons (${btnCount})</button>` : ''}
+                    ${inputCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('edit', this)">📝 Inputs (${inputCount})</button>` : ''}
+                    ${tabCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('tab', this)">📑 Tabs & Lists (${tabCount})</button>` : ''}
+                    ${toggleCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('toggle', this)">🎛️ Toggles (${toggleCount})</button>` : ''}
+                    ${hotkeyElements.length ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('shortcut', this)">⌨️ Shortcuts (${hotkeyElements.length})</button>` : ''}
+                </div>
+
+                <table class="wikitable" id="ctrlTable">
                     <thead>
-                        <tr><th>Control Name</th><th>Type</th><th>Offset (X, Y)</th><th>Anchor</th><th>Shortcut</th></tr>
+                        <tr><th>Control Name & Breadcrumb</th><th>Type</th><th>Zero-Token AI Recipe</th><th>Coordinates & Anchor</th><th>Shortcut</th></tr>
                     </thead>
                     <tbody>
-                        ${elRows || '<tr><td colspan="5" style="color: var(--text-muted);">No controls indexed yet.</td></tr>'}
+                        ${elRows || '<tr><td colspan="5" style="color: var(--text-muted);">No controls indexed yet. Click 🔬 Deep Dive above.</td></tr>'}
                     </tbody>
                 </table>
 
@@ -1134,10 +1181,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                             <div style="font-size: 32px; margin-bottom: 8px;">📜</div>
                             <h3 style="font-family: var(--serif); font-size: 19px; margin-bottom: 8px;">No Scans Performed Yet</h3>
                             <p style="color: var(--text-muted); font-size: 13px; max-width: 480px; margin: 0 auto 16px auto;">
-                                Click <strong>🔬 Deep Dive</strong> or <strong>🎯 Auto-Tour</strong> in the top header bar to index any open Windows application. Discovered controls and keyboard accelerators will be permanently recorded here.
+                                Click <strong>🔬 Deep Dive</strong> in the top header bar to index any open Windows application. Discovered controls, process specs, and keyboard accelerators will be permanently recorded here.
                             </p>
                             <button class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive()">🔬 Start Deep Dive</button>
-                            <button class="btn-wiki" onclick="triggerAutoMoveRecord()" style="margin-left: 8px;">🎯 Start Auto-Tour</button>
                         </div>
                     `;
                     return;
@@ -1519,37 +1565,30 @@ HTML_CONTENT = """<!DOCTYPE html>
             `;
         }
 
-        async function triggerAutoMoveRecord(appKey) {
-            const btn = document.getElementById('btnAutoRecord');
-            let target = appKey || currentApp || '';
-            if (btn) {
-                btn.disabled = true;
-                btn.innerText = '🎯 Moving Mouse & Scanning...';
-            }
-            showToast(`Starting automated cursor tour for '${target || 'window'}': DeskDriver is physically moving the mouse over controls...`, 5000);
+        function copyAndToast(text) {
             try {
-                const res = await fetch('/api/auto_record', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ window: target })
-                });
-                const data = await res.json();
-                if (data.status === 'auto_recorded') {
-                    const newTxt = (data.new_count > 0) ? ` (✨ ${data.new_count} newly discovered!)` : ' (0 new, all cached)';
-                    showToast(`✅ Auto-tour complete! Recorded ${data.count} controls${newTxt} for ${data.app}!`, 8000);
-                    await fetchStats();
-                    if (data.app) navigateTo('app', data.app);
-                } else {
-                    showToast('Scan error: ' + (data.error || 'Unknown error'));
-                }
+                navigator.clipboard.writeText(text);
+                showToast(`📋 Copied action recipe: <code>${text}</code>`, 3000);
             } catch (e) {
-                showToast('Auto-record error: ' + e);
-            } finally {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = '🎯 Auto-Tour';
-                }
+                prompt('Copy action recipe:', text);
             }
+        }
+
+        function filterCtrlTable(category, btnElement) {
+            document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
+            if (btnElement) btnElement.classList.add('active');
+            document.querySelectorAll('.ctrl-row').forEach(row => {
+                const type = (row.dataset.type || '').toLowerCase();
+                const hasSc = row.dataset.shortcut === '1';
+                let match = true;
+                if (category === 'button') match = /button|toolbar/.test(type);
+                else if (category === 'menu') match = /menu/.test(type);
+                else if (category === 'edit') match = /edit|combobox|spinner|document/.test(type);
+                else if (category === 'tab') match = /tab|list|tree|item/.test(type);
+                else if (category === 'toggle') match = /check|radio|toggle/.test(type);
+                else if (category === 'shortcut') match = hasSc;
+                row.style.display = match ? '' : 'none';
+            });
         }
 
         async function triggerDeepDive(appKey) {
@@ -1782,7 +1821,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
-            roadmap_data = am.roadmap.map
+            roadmap_data = am.roadmap.reload()
             total_elements = sum(len(app.get("elements", {})) for app in roadmap_data.values())
             current_logs = load_scan_logs()
 
@@ -1934,35 +1973,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
-        elif clean_path == "/api/auto_record":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-
-            win = req_data.get("window", "")
-            res = am.auto_record_window(window_search=win, move_cursor=True)
-            if isinstance(res, dict) and res.get("status") == "auto_recorded":
-                count = res.get("count", 0)
-                new_items = res.get("new_elements", [])
-                new_count = res.get("new_count", len(new_items))
-                if new_count > 0:
-                    summary = f"Recorded {count} controls (✨ {new_count} newly added to roadmap)"
-                else:
-                    summary = f"Re-verified {count} controls (0 new &mdash; all already cached)"
-
-                add_scan_log(
-                    action="Auto-Tour",
-                    app=res.get("app") or win or "Application",
-                    summary=summary,
-                    count=count,
-                    new_count=new_count,
-                    new_items=new_items,
-                    items=res.get("recorded_elements", [])[:30],
-                )
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
-
-        elif clean_path == "/api/deepdive":
+        elif clean_path in ("/api/auto_record", "/api/deepdive"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1970,28 +1981,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             win = req_data.get("window", "")
             res = am.deep_dive_app(window_search=win)
-            if isinstance(res, dict) and res.get("status") == "deep_dive_complete":
-                count = res.get("total_elements", 0)
-                sc_count = res.get("total_shortcuts", 0)
-                new_items = res.get("new_elements", [])
-                new_count = res.get("new_count", len(new_items))
-                discovered = [el.get("name") for el in res.get("discovered_elements", []) if el.get("name")]
-                if new_count > 0:
-                    summary = f"Indexed {count} controls & {sc_count} shortcuts (✨ {new_count} newly discovered)"
-                else:
-                    summary = f"Indexed {count} controls & {sc_count} shortcuts (0 new &mdash; all already known)"
-
-                add_scan_log(
-                    action="Deep Dive",
-                    app=res.get("app") or win or "Application",
-                    summary=summary,
-                    count=count,
-                    new_count=new_count,
-                    new_items=new_items,
-                    shortcuts_count=sc_count,
-                    items=discovered[:30],
-                    duration=res.get("duration_seconds", 0.0),
-                )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif clean_path == "/api/snap_window":
