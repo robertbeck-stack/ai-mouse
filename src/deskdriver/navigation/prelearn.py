@@ -20,11 +20,15 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
     ensure_desktop()
     results = {
         "scanned_apps": [],
+        "total_elements": 0,
         "total_new_elements": 0,
+        "new_elements": [],
         "duration_seconds": 0.0,
     }
 
     t0 = time.perf_counter()
+    all_new_elements = []
+    total_elements_count = 0
 
     # 1. Scan open application windows
     windows = list_windows()
@@ -39,16 +43,28 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
             continue
         scanned_keys.add(app_key)
 
+        existing_keys = set(roadmap.map.get(app_key, {}).get("elements", {}).keys())
+
         try:
             # Find elements in window with higher depth and element cap
             elements = list_clickable_elements(window_search=title, max_elements=max_elements_per_app)
             if elements:
+                current_map = roadmap.map.get(app_key, {}).get("elements", {})
+                new_app_elements = []
+                for k, v in current_map.items():
+                    if k not in existing_keys:
+                        el_name = v.get("name") or k
+                        new_app_elements.append(f"{app_key}: {el_name}")
+                all_new_elements.extend(new_app_elements)
+
                 results["scanned_apps"].append({
                     "app": app_key,
                     "window_title": title[:40],
                     "elements_count": len(elements),
+                    "new_count": len(new_app_elements),
+                    "new_elements": new_app_elements,
                 })
-                results["total_new_elements"] += len(elements)
+                total_elements_count += len(elements)
         except Exception as e:
             results["scanned_apps"].append({
                 "app": app_key,
@@ -89,22 +105,36 @@ def run_system_prelearn(max_elements_per_app: int = 150) -> dict:
             walk_taskbar(taskbar)
 
             if tb_elements:
+                existing_tb = set(roadmap.map.get("taskbar", {}).get("elements", {}).keys())
                 roadmap.learn_window(
                     window_title="taskbar",
                     elements=tb_elements,
                     window_rect={"left": t_rect.left, "top": t_rect.top, "right": t_rect.right, "bottom": t_rect.bottom},
                 )
+                current_tb = roadmap.map.get("taskbar", {}).get("elements", {})
+                new_tb = []
+                for k, v in current_tb.items():
+                    if k not in existing_tb:
+                        el_name = v.get("name") or k
+                        new_tb.append(f"taskbar: {el_name}")
+                all_new_elements.extend(new_tb)
+
                 results["scanned_apps"].append({
                     "app": "taskbar",
                     "window_title": "Windows Taskbar",
                     "elements_count": len(tb_elements),
+                    "new_count": len(new_tb),
+                    "new_elements": new_tb,
                 })
-                results["total_new_elements"] += len(tb_elements)
+                total_elements_count += len(tb_elements)
     except Exception:
         pass
 
 
     results["duration_seconds"] = round(time.perf_counter() - t0, 2)
+    results["total_elements"] = total_elements_count
+    results["total_new_elements"] = len(all_new_elements)
+    results["new_elements"] = all_new_elements
     results["total_mapped_apps"] = len(roadmap.map)
     results["total_mapped_elements"] = sum(len(a.get("elements", {})) for a in roadmap.map.values())
 

@@ -1026,7 +1026,10 @@ HTML_CONTENT = """<!DOCTYPE html>
                                     ✨ Newly Discovered (+${log.new_count || log.new_items.length}):
                                 </span>
                                 <div style="margin-top: 4px;">
-                                    ${log.new_items.slice(0, 15).map(i => `<span class="item-chip" style="background: #e6f9f0; border-color: #8be0bf; color: #14866d; font-weight: 600;">+ ${i}</span>`).join('')}
+                                    ${log.new_items.slice(0, 15).map(i => {
+                                        const label = (typeof i === 'object' && i !== null) ? (i.name || i.window_title || i.app || JSON.stringify(i)) : i;
+                                        return `<span class="item-chip" style="background: #e6f9f0; border-color: #8be0bf; color: #14866d; font-weight: 600;">+ ${label}</span>`;
+                                    }).join('')}
                                     ${log.new_items.length > 15 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.new_items.length - 15} more</span>` : ''}
                                 </div>
                             </div>
@@ -1040,7 +1043,10 @@ HTML_CONTENT = """<!DOCTYPE html>
                     }
 
                     const itemsList = (log.items && log.items.length > 0)
-                        ? `<div style="margin-top: 6px; font-size: 11.5px; color: var(--text-muted);"><span style="font-weight: 600;">All scanned:</span> ${log.items.slice(0, 10).map(i => `<span class="item-chip">${i}</span>`).join('')}${log.items.length > 10 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.items.length - 10} more</span>` : ''}</div>`
+                        ? `<div style="margin-top: 6px; font-size: 11.5px; color: var(--text-muted);"><span style="font-weight: 600;">All scanned:</span> ${log.items.slice(0, 10).map(i => {
+                            const label = (typeof i === 'object' && i !== null) ? (i.window_title ? `${i.window_title} (${i.elements_count || 0})` : (i.app || i.name || JSON.stringify(i))) : i;
+                            return `<span class="item-chip">${label}</span>`;
+                        }).join('')}${log.items.length > 10 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.items.length - 10} more</span>` : ''}</div>`
                         : '';
 
                     rows += `
@@ -1384,8 +1390,14 @@ HTML_CONTENT = """<!DOCTYPE html>
 
             try {
                 const res = await fetch('/api/prelearn', { method: 'POST' });
-                const data = await res.json();
-                showToast(`✅ System Scan complete! Indexed ${data.total_new_elements} controls across ${data.scanned_apps.length} apps.`, 8000);
+                const newCnt = data.total_new_elements || 0;
+                const totalCnt = data.total_elements || 0;
+                const appsCnt = (data.scanned_apps || []).length;
+                if (newCnt > 0) {
+                    showToast(`✅ System Scan complete! Indexed ${totalCnt} controls across ${appsCnt} apps (✨ ${newCnt} newly found!).`, 8000);
+                } else {
+                    showToast(`✅ System Scan complete! Re-verified ${totalCnt} controls across ${appsCnt} apps (all already indexed in roadmap).`, 8000);
+                }
                 await fetchStats();
             } catch (e) {
                 showToast('System Scan error: ' + e);
@@ -1529,12 +1541,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             res = am.run_system_prelearn()
             if isinstance(res, dict):
                 apps = res.get("scanned_apps", [])
+                total_cnt = res.get("total_elements", res.get("total_new_elements", 0))
+                new_items = res.get("new_elements", [])
+                new_cnt = res.get("total_new_elements", len(new_items))
+                app_items = [
+                    f"{a.get('window_title') or a.get('app', 'app')} ({a.get('elements_count', 0)})"
+                    for a in apps
+                    if "elements_count" in a
+                ]
+
+                if new_cnt > 0:
+                    summary = f"Full scan indexed {total_cnt} controls across {len(apps)} applications (✨ {new_cnt} newly discovered)"
+                else:
+                    summary = f"Full scan checked {total_cnt} controls across {len(apps)} applications (0 new — all already indexed)"
+
                 add_scan_log(
                     action="System Pre-Learn",
                     app=f"{len(apps)} Apps",
-                    summary=f"Full scan indexed {res.get('total_new_elements', 0)} controls across {len(apps)} applications",
-                    count=res.get("total_new_elements", 0),
-                    items=apps,
+                    summary=summary,
+                    count=total_cnt,
+                    new_count=new_cnt,
+                    new_items=new_items,
+                    items=app_items,
+                    duration=res.get("duration_seconds", 0.0),
                 )
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
