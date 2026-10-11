@@ -124,6 +124,23 @@ def get_element_at(x: int, y: int) -> dict:
 inspect_at = get_element_at
 
 
+def elements_at(x: int, y: int, ancestors: int = 3) -> list[tuple[str, str]]:
+    """
+    (name, control type) of the element at a point and its first few ancestors:
+    the hit is often a label inside the button that was cached. [] if UIA fails.
+    """
+    ensure_desktop()
+    found = []
+    try:
+        ctrl = auto.ControlFromPoint(x, y)
+        while ctrl and len(found) <= ancestors:
+            found.append(((ctrl.Name or "").strip(), ctrl.ControlTypeName))
+            ctrl = ctrl.GetParentControl()
+    except Exception:
+        return found
+    return found
+
+
 def scan_clickable_elements(
     window_search: str | None = None, max_elements: int = 150, hwnd: int | None = None
 ) -> tuple[list[dict], dict | None]:

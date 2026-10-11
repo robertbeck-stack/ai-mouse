@@ -46,3 +46,6 @@ ui_roadmap/
 ui_roadmap.json
 scan_history.json
 scan_history.json.tmp
+
+# Machine-specific settings
+local_fastpaths.json

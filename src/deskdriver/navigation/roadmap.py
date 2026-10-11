@@ -18,13 +18,16 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from deskdriver.automation.appid import AppIdentity
-from deskdriver.navigation.element_filter import is_transient, normalize_name
+from deskdriver.navigation.element_filter import (
+    is_transient, normalize_name, prefer_shortcut, redact_secrets, storable_value,
+)
 from deskdriver.navigation.hotkeys import APP_PROFILES
 from deskdriver.navigation.roadmap_migrate import SCHEMA_VERSION, describe, migrate_entries
 from deskdriver.paths import ROADMAP_DIR, LEGACY_ROADMAP_FILE
 
 
 LOCK_FILE_NAME = ".lock"
+STALE_AFTER_MISSES = 3  # complete scans in a row an element may be missing before it's dropped
 MIN_WINDOW_SIZE = 50  # px; smaller window rects are treated as invalid by learn_window
 BACKUP_DIR_NAME = "_backup_schema1"
 UNMIGRATED_DIR_NAME = "_unmigrated"
@@ -327,7 +330,8 @@ class UIRoadmap:
     def prune_transient(self) -> dict[str, int]:
         """
         Drop cached elements that is_transient() rejects (document / browser tabs,
-        web page content, secret-looking names). Returns {app_key: removed count}.
+        web page content, secret-looking names) and clear stored input-field values.
+        Returns {app_key: removed count}.
         """
         removed: dict[str, int] = {}
         with self._lock:
@@ -337,10 +341,29 @@ class UIRoadmap:
                 for k in doomed:
                     del elements[k]
                     self._removed.setdefault(app_key, set()).add(k)
+                scrubbed = False
+                for el in elements.values():
+                    value = storable_value(el.get("control_type", ""), el.get("value", ""))
+                    if el.get("value") and value != el["value"]:
+                        el["value"] = value
+                        scrubbed = True
                 if doomed:
                     removed[app_key] = len(doomed)
+                if doomed or scrubbed:
                     self.save(app_key)
         return removed
+
+    def _age_unseen(self, app_key: str, seen: set[str]):
+        """Count a miss for every positioned element a complete scan didn't find; drop repeat misses."""
+        elements = self.map[app_key]["elements"]
+        for key in [k for k in elements if k not in seen]:
+            el = elements[key]
+            if el.get("control_type") in ("HotkeyAction", "SpatialAnchor"):
+                continue  # profile hotkeys / canvas anchors aren't found by scanning
+            el["misses"] = el.get("misses", 0) + 1
+            if el["misses"] >= STALE_AFTER_MISSES:
+                del elements[key]
+                self._removed.setdefault(app_key, set()).add(key)
 
     def normalize_names(self) -> dict[str, int]:
         """
@@ -358,7 +381,7 @@ class UIRoadmap:
                     if display == raw:
                         continue
                     new_key = display.lower()
-                    shortcut = el.get("shortcut") or sc
+                    shortcut = prefer_shortcut(sc, el.get("shortcut", ""))
                     action = el.get("ai_action", "")
                     if shortcut:
                         action = f"hotkey:{shortcut.lower()}"
@@ -407,10 +430,14 @@ class UIRoadmap:
         window_rect: dict,
         process_info: dict | None = None,
         categories: dict | None = None,
+        complete: bool = False,
     ):
         """
         Cache elements using coordinates relative to the window top-left.
         `app` is the window's AppIdentity (preferred) or an app key.
+        complete=True means `elements` is everything the window shows (an untruncated
+        deep dive): cached elements missing from STALE_AFTER_MISSES such scans in a
+        row are dropped, so controls removed from the app don't linger.
         """
         with self._lock:
             win_left = window_rect["left"]
@@ -440,6 +467,7 @@ class UIRoadmap:
                 self.map[app_key]["categories"] = categories
 
             exe = self.map[app_key].get("exe", "")
+            seen: set[str] = set()
             for el in elements:
                 raw_name = (el.get("name") or "").strip()
                 if not raw_name or raw_name.startswith("(") or is_transient(el, exe):
@@ -453,7 +481,7 @@ class UIRoadmap:
                 display, name_sc = normalize_name(raw_name, rel_x, rel_y)
                 name = display.lower()
                 existing_el = self.map[app_key]["elements"].get(name, {})
-                final_sc = el.get("shortcut", "") or name_sc or existing_el.get("shortcut", "")
+                final_sc = prefer_shortcut(name_sc, el.get("shortcut", "")) or existing_el.get("shortcut", "")
 
                 ct = el.get("control_type", "ButtonControl")
                 if final_sc:
@@ -479,13 +507,19 @@ class UIRoadmap:
                     "height": el.get("rect", {}).get("height", 0),
                     "automation_id": el.get("automation_id", existing_el.get("automation_id", "")),
                     "class_name": el.get("class_name", existing_el.get("class_name", "")),
-                    "help_text": el.get("help_text", existing_el.get("help_text", "")),
-                    "value": el.get("value", existing_el.get("value", "")),
+                    "help_text": redact_secrets(el.get("help_text", existing_el.get("help_text", ""))),
+                    "value": storable_value(ct, el.get("value", existing_el.get("value", ""))),
                     "toggle_state": el.get("toggle_state", existing_el.get("toggle_state", None)),
                     "container_path": el.get("container_path", existing_el.get("container_path", "")),
                     "ai_action": ai_action,
                     "is_enabled": el.get("is_enabled", existing_el.get("is_enabled", True)),
+                    "last_seen": time.time(),
+                    "misses": 0,
                 }
+                seen.add(name)
+
+            if complete and seen:
+                self._age_unseen(app_key, seen)
 
             # Merge standard application hotkey profiles if known
             # Profiles describe main windows, not dialogs ("notepad.exe/page setup")

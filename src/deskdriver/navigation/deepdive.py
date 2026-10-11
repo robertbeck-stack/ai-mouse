@@ -470,6 +470,7 @@ def deep_dive_app(
         window_rect=win_rect,
         process_info=specs,
         categories={k: len(v) for k, v in categories.items()},
+        complete=len(all_discovered) < max_elements,
     )
 
     duration = round(time.perf_counter() - t0, 2)

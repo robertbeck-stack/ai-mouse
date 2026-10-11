@@ -245,10 +245,14 @@ def test_multimonitor_and_waiting():
     assert "hwnd" in found
     print(f" -> Smart wait resolved window {target_title!r} instantly")
 
-    # Element wait check on cached element
-    cached_el = dd.wait_for_element("SelfCheckTestButton", timeout=0.5)
-    assert cached_el is not None
-    print(" -> Smart wait resolved cached element")
+    # A cached element that isn't actually on screen is not reported as available
+    # (SelfCheckTestButton only exists in the roadmap, at made-up coordinates)
+    cached_el = dd.wait_for_element("SelfCheckTestButton", timeout=0.3)
+    assert cached_el is None
+    from deskdriver.navigation.interact import cached_target_present
+    assert not cached_target_present({"name": "SelfCheckTestButton", "control_type": "ButtonControl",
+                                      "center_x": 5, "center_y": 5})
+    print(" -> Smart wait ignores stale cached positions")
 
 
 def test_auto_record():
@@ -519,7 +523,9 @@ def test_review_regressions():
         from deskdriver.navigation.element_filter import normalize_name
         assert normalize_name("Media Alt+M", 32, 41) == ("Media", "Alt+M")
         assert normalize_name("Playback Alt+l", 88, 41) == ("Playback", "Alt+L")
-        assert normalize_name("Bold (Ctrl+B)", 0, 0) == ("Bold (Ctrl+B)", "")
+        assert normalize_name("Bold (Ctrl+B)", 0, 0) == ("Bold", "Ctrl+B")
+        assert normalize_name("Refresh (F5)", 0, 0) == ("Refresh", "F5")
+        assert normalize_name("Save", 0, 0) == ("Save", "")
         assert normalize_name("unnamed_buttoncontrol_477_1204", 62, 985) == ("button @ 62,985", "")
         assert normalize_name("unnamed_splitbuttoncontrol_902_732", 487, 513) == ("splitbutton @ 487,513", "")
         q = rm.UIRoadmap(directory=d, legacy_file=None)

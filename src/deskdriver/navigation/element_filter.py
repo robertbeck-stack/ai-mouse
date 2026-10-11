@@ -16,6 +16,8 @@ Pure functions, so the rules can be tested without UI Automation.
 
 import re
 
+from deskdriver.core.shortcuts import extract_shortcut_from_name
+
 BROWSER_EXES = frozenset({
     "brave.exe", "chrome.exe", "msedge.exe", "firefox.exe", "opera.exe",
     "vivaldi.exe", "arc.exe", "chromium.exe",
@@ -72,9 +74,6 @@ def is_transient(element: dict, exe: str = "") -> bool:
     return False
 
 
-# "Media Alt+M", "Playback Alt+l" (Qt menus put the accelerator in the name)
-ACCELERATOR_SUFFIX = re.compile(r"^(.*?\S)\s+((?:ctrl|alt|shift|win)(?:\+[^\s+]+)+)$", re.I)
-
 # Names uia.get_element_name() invents for controls without a name / id / help text.
 # They embed *screen* coordinates, so they change whenever the window moves.
 UNNAMED = re.compile(r"^unnamed_([a-z]+?)(?:control)?_-?\d+_-?\d+$")
@@ -83,16 +82,34 @@ UNNAMED = re.compile(r"^unnamed_([a-z]+?)(?:control)?_-?\d+_-?\d+$")
 def normalize_name(name: str, rel_x: int, rel_y: int) -> tuple[str, str]:
     """
     (display name, shortcut) to cache an element under:
-      "Media Alt+M"                         -> ("Media", "Alt+M")
+      "Media Alt+M", "Bold (Ctrl+B)"        -> ("Media", "Alt+M"), ("Bold", "Ctrl+B")
       "unnamed_buttoncontrol_477_1204"      -> ("button @ 62,985", "")   window-relative
     """
     name = (name or "").strip()
     m = UNNAMED.match(name)
     if m:
         return f"{m.group(1)} @ {rel_x},{rel_y}", ""
-    m = ACCELERATOR_SUFFIX.match(name)
-    if m:
-        keys = m.group(2).split("+")
-        shortcut = "+".join(k.capitalize() if len(k) > 1 else k.upper() for k in keys)
-        return m.group(1), shortcut
-    return name, ""
+    return extract_shortcut_from_name(name)
+
+
+
+def prefer_shortcut(from_name: str, reported: str) -> str:
+    """
+    The shortcut to store: UIA's reported one, unless it's only an access key
+    ("Alt, B": a menu mnemonic) and the name carries a real accelerator ("Ctrl+B").
+    """
+    if from_name and (not reported or reported.lower().startswith("alt,")):
+        return from_name
+    return reported or from_name
+
+
+# Controls whose value is user content (typed text, the URL in an address bar,
+# a search box), not a label of the app's UI
+INPUT_TYPES = ("Edit", "ComboBox", "Document", "Spinner")
+
+
+def storable_value(control_type: str, value) -> str:
+    """The element value to cache: empty for input fields, secrets redacted otherwise."""
+    if any(t in (control_type or "") for t in INPUT_TYPES):
+        return ""
+    return redact_secrets(str(value or ""))

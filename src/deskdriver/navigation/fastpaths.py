@@ -2,10 +2,12 @@
 Windows direct URI and deep-link fastpaths for zero-click navigation.
 """
 
+import json
 import os
 import time
 
 from deskdriver.automation.windows import list_windows, focus_window
+from deskdriver.paths import LOCAL_FASTPATHS_FILE
 
 FASTPATHS = {
     "system": "ms-settings:system",
@@ -44,8 +46,19 @@ FASTPATHS = {
     "paint": "mspaint.exe",
     "store": "ms-windows-store:",
     "microsoft store": "ms-windows-store:",
-    "polytopia": r"C:\Users\rober\Downloads\The.Battle.of.Polytopia.v2.3.5.9320\Polytopia.exe",
 }
+
+
+def _load_local_fastpaths() -> dict[str, str]:
+    """Extra fastpaths for this machine (installed games, portable apps) from local_fastpaths.json."""
+    try:
+        data = json.loads(LOCAL_FASTPATHS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k).lower(): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+FASTPATHS.update(_load_local_fastpaths())
 
 
 # Title of the window a URI opens, used when the app reuses an already-open window

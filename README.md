@@ -67,6 +67,12 @@ Bypasses manual clicking for operating system utilities:
 - `open_fastpath("taskmgr")` &rarr; opens Windows Task Manager
 - `open_fastpath("calc")` &rarr; launches Calculator
 
+Machine-specific launchers (games, portable apps) go in `local_fastpaths.json` next to
+the roadmap, which is kept out of git:
+```json
+{ "polytopia": "D:\\Games\\Polytopia\\Polytopia.exe" }
+```
+
 ### 4. Human-like Bézier Cursor Dynamics
 Generates cubic Bézier curves parameterized with smoothstep velocity easing and micro-overshoot corrections, making cursor automation appear completely natural (150–250 ms duration) without mechanical jumping.
 
@@ -110,9 +116,11 @@ deskdriver
 # Open http://localhost:8765 in your browser
 ```
 
-### 3. Run the Automated Test Suite
+### 3. Run the Tests
 ```powershell
-python tests/test_deskdriver.py
+pip install -e ".[dev]"
+pytest                          # unit tests (pure logic, also run in CI)
+python tests/test_deskdriver.py # end-to-end suite, drives real windows
 ```
 
 ---
@@ -249,9 +257,12 @@ deskdriver/
 │   └── ai_mouse/                  # Backward compatibility shim
 │       └── __init__.py            # Re-exports deskdriver
 ├── tests/
-│   └── test_deskdriver.py         # Self-check suite (runs on a temp copy of the data)
+│   ├── unit/                      # pytest unit tests (no desktop needed, run in CI)
+│   └── test_deskdriver.py         # End-to-end suite (runs on a temp copy of the data)
 ├── ui_roadmap/                    # Learned app profiles, one JSON per app (not in git)
-├── dashboard.py                   # Wikipedia-style UI-Pedia web interface
+├── local_fastpaths.json           # Machine-specific fastpaths (not in git)
+├── dashboard.py                   # Wiki server: JSON API + serves web/
+├── web/                           # Wiki page: index.html, style.css, app.js
 ├── demo.py                        # Terminal interactive demo
 ├── pyproject.toml                 # Packaging configuration (v0.2.0)
 └── ROADMAP.md                     # Community Hub & Future Architecture

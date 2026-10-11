@@ -11,11 +11,27 @@ from deskdriver.core.desktop import ensure_desktop
 from deskdriver.core.keyboard import press_hotkey, type_text, COMMON_HOTKEYS
 from deskdriver.core.mouse import move_and_click, mouse_click, get_mouse_position, user32
 from deskdriver.automation.windows import list_windows, focus_window, window_at, window_info
-from deskdriver.automation.uia import inspect_at, scan_clickable_elements
+from deskdriver.automation.uia import elements_at, inspect_at, scan_clickable_elements
 from deskdriver.automation.appid import identify_window, find_app_window
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.roadmap import roadmap, match_element_key
 from deskdriver.navigation.deepdive import deep_dive_app
+
+
+def cached_target_present(cached: dict) -> bool:
+    """
+    Is the cached element still where the roadmap says? Checks the element at its
+    position (and a few ancestors, since the hit is often the label inside a button)
+    by name, or by control type for unnamed controls ("button @ 62,985").
+    Unverifiable positions (UIA error) count as present.
+    """
+    found = elements_at(cached["center_x"], cached["center_y"])
+    if not found:
+        return True
+    name = (cached.get("name") or "").strip().lower()
+    if " @ " in name:
+        return any(ct == cached.get("control_type") for _, ct in found)
+    return any(n.lower() == name or (n and (n.lower() in name or name in n.lower())) for n, _ in found)
 
 
 def _target_window(window_search: str, wins: list[dict]) -> dict | None:
@@ -84,12 +100,13 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
 
     # 4. Check Roadmap Cache
     cached = roadmap.find_cached_element(app_key, element_name, target_win["rect"])
+    if cached and cached.get("shortcut"):
+        # A known accelerator is faster and position-independent
+        press_hotkey(cached["shortcut"])
+        return {"status": "accelerator_hotkey_executed", "name": cached["name"], "shortcut": cached["shortcut"]}
+    if cached and not cached_target_present(cached):
+        cached = None  # layout changed: rescan below (which re-learns the new position)
     if cached:
-        # If element has a known accelerator shortcut, use it for 10x speedup
-        if cached.get("shortcut"):
-            press_hotkey(cached["shortcut"])
-            return {"status": "accelerator_hotkey_executed", "name": cached["name"], "shortcut": cached["shortcut"]}
-
         cx = cached["center_x"]
         cy = cached["center_y"]
         if instant:
@@ -208,14 +225,15 @@ def wait_for_element(
         target_win = _target_window(window_search, wins)
 
         if target_win:
+            # A cached position only counts once the element is actually there
             cached = roadmap.find_cached_element(identify_window(target_win["hwnd"]).key, element_name, target_win["rect"])
-            if cached:
+            if cached and cached_target_present(cached):
                 return cached
 
             if not window_search:
                 for w in wins:
                     cached_other = roadmap.find_cached_element(identify_window(w["hwnd"]).key, element_name, w["rect"])
-                    if cached_other:
+                    if cached_other and cached_target_present(cached_other):
                         return cached_other
 
             elements = list_clickable_elements(hwnd=target_win["hwnd"], max_elements=50)

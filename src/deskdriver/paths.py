@@ -16,3 +16,5 @@ ROADMAP_DIR = DATA_DIR / "ui_roadmap"
 LEGACY_ROADMAP_FILE = DATA_DIR / "ui_roadmap.json"
 SCAN_HISTORY_FILE = DATA_DIR / "scan_history.json"
 SAVED_ACTIONS_FILE = DATA_DIR / "saved_actions.json"
+# Machine-specific fastpaths ({"name": "path or URI"}), kept out of git
+LOCAL_FASTPATHS_FILE = DATA_DIR / "local_fastpaths.json"

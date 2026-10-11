@@ -180,9 +180,19 @@ def _uwp_app_pid(frame_hwnd: int) -> int | None:
     return found[0] if found else None
 
 
+DIALOG_CLASS = "#32770"
+
+# Parts of dialog titles that name the object, not the dialog: file names
+# ("notes.txt Properties") and quoted names ('Delete "report"')
+_FILE_TOKEN = re.compile(r"\S+\.[a-z0-9]{1,5}\b")
+_QUOTED = re.compile(r"[\"'“”‘’][^\"'“”‘’]*[\"'“”‘’]")
+
+
 def surface_name(title: str) -> str:
-    """Stable name for a dialog surface: lower-case title without digits or file names."""
-    t = re.sub(r"\d+", "", title.lower())
+    """Stable name for a dialog surface: lower-case title without digits, file names or quoted names."""
+    t = _QUOTED.sub("", title.lower())
+    t = _FILE_TOKEN.sub("", t)
+    t = re.sub(r"\d+", "", t)
     t = re.sub(r"\s+", " ", t).strip(" -–—:")
     return t[:40] or "dialog"
 
@@ -197,6 +207,19 @@ def _identify(hwnd: int, pid: int, cls: str, owner: int) -> AppIdentity:
     exe = os.path.basename(exe_path).lower()
     key = key_for(exe, cls)
     display = display_name_for(key, exe_path)
+
+    # An unowned dialog of a shared host (Explorer's "Properties", rundll32's control
+    # panels) is a surface of that host's main app, not a new "explorer.exe##32770" app
+    if cls == DIALOG_CLASS and exe in SHARED_HOST_EXES and not owner:
+        host_key = key_for(exe, PRIMARY_HOST_CLASS[exe]) if exe in PRIMARY_HOST_CLASS else exe
+        surface = surface_name(_title(hwnd))
+        return AppIdentity(
+            key=f"{host_key}/{surface}",
+            exe=exe,
+            display_name=display_name_for(host_key, exe_path),
+            window_class=cls,
+            surface=surface,
+        )
 
     surface = ""
     if owner and user32.IsWindowVisible(wintypes.HWND(owner)):

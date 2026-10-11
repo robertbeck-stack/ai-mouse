@@ -23,3 +23,10 @@ dependencies = [
 deskdriver = "deskdriver.server:main"
 deskdriver-server = "deskdriver.server:main"
 ai-mouse-server = "deskdriver.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+# Unit tests only; tests/test_deskdriver.py drives real windows and is run directly
+testpaths = ["tests/unit"]
