@@ -936,8 +936,10 @@ async function renderMcpPage(container) {
         </div>
 
         <h2 class="wiki-h2">1 Claude Desktop</h2>
-        <p>Open <em>Settings → Developer → Edit Config</em> (the file is <code>%APPDATA%\\Claude\\claude_desktop_config.json</code>),
-           merge this in, save and restart Claude Desktop:</p>
+        <p>Open <em>Settings → Developer → Edit Config</em>, merge this in, save, then quit Claude Desktop completely
+           (also from the system tray) and start it again. The file is <code>%APPDATA%\\Claude\\claude_desktop_config.json</code>,
+           or for the Microsoft Store version
+           <code>%LOCALAPPDATA%\\Packages\\Claude_&lt;id&gt;\\LocalCache\\Roaming\\Claude\\claude_desktop_config.json</code>.</p>
         ${block(0)}
 
         <h2 class="wiki-h2">2 Claude Code</h2>
