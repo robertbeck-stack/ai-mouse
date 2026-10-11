@@ -95,6 +95,7 @@ function navigateTo(view, appKey = null) {
     else if (view === 'hotkeys') document.getElementById('menu-hotkeys')?.classList.add('active');
     else if (view === 'fastpaths') document.getElementById('menu-fastpaths')?.classList.add('active');
     else if (view === 'tester') document.getElementById('menu-tester')?.classList.add('active');
+    else if (view === 'mcp') document.getElementById('menu-mcp')?.classList.add('active');
     else if (view === 'app' && appKey) {
         document.getElementById('side-app-' + appKey.split('/')[0])?.classList.add('active');
     }
@@ -169,6 +170,7 @@ function renderCurrentView() {
     else if (currentView === 'hotkeys') renderHotkeysPage(container);
     else if (currentView === 'fastpaths') renderFastpathsPage(container);
     else if (currentView === 'tester') renderTesterPage(container);
+    else if (currentView === 'mcp') renderMcpPage(container);
 }
 
 /* 1. MAIN ENCYCLOPEDIA PAGE */
@@ -234,6 +236,12 @@ function renderMainPage(container) {
                     <td>${fpCount} Zero-click URI schemes for native settings, apps, and diagnostics</td>
                     <td><span style="color: var(--success); font-weight: 600;">0.0 ms</span></td>
                     <td><button class="btn-wiki btn-sm" onclick="navigateTo('fastpaths')">Open Article</button></td>
+                </tr>
+                <tr>
+                    <td><strong><a onclick="navigateTo('mcp')" style="color: var(--primary); cursor: pointer;">AI / MCP Setup</a></strong></td>
+                    <td>Give Claude, Cursor or another MCP client access to this desktop</td>
+                    <td>&mdash;</td>
+                    <td><button class="btn-wiki btn-sm" onclick="navigateTo('mcp')">Open Article</button></td>
                 </tr>
             </tbody>
         </table>
@@ -871,6 +879,91 @@ async function deleteSavedAction(name) {
 }
 
 /* 6. TESTER & CONTROLS PAGE */
+/* 7. AI / MCP SETUP PAGE */
+// Config snippets shown on the page, copied by index so paths need no quoting in onclick
+let mcpSnippets = [];
+
+function copyMcpSnippet(i) {
+    copyToClipboard(mcpSnippets[i]);
+}
+
+async function renderMcpPage(container) {
+    container.innerHTML = '<p style="color: var(--text-muted);">Loading MCP setup...</p>';
+    let setup;
+    try {
+        setup = await (await fetch('/api/mcp_setup')).json();
+    } catch (e) {
+        container.innerHTML = `<p style="color: #d33;">Could not load MCP setup: ${esc(e)}</p>`;
+        return;
+    }
+    if (currentView !== 'mcp') return;
+
+    const server = { command: setup.python, args: [setup.server_script] };
+    mcpSnippets = [
+        JSON.stringify({ mcpServers: { deskdriver: server } }, null, 2),
+        `claude mcp add --scope user deskdriver -- "${setup.python}" "${setup.server_script}"`,
+        JSON.stringify({ servers: { deskdriver: { type: 'stdio', ...server } } }, null, 2),
+    ];
+    const block = (i) => `
+        <div class="mcp-snippet">
+            <button class="btn-wiki btn-sm" onclick="copyMcpSnippet(${i})">Copy</button>
+            <pre>${esc(mcpSnippets[i])}</pre>
+        </div>`;
+
+    const toolRows = (setup.tools || []).map(t => `
+        <tr>
+            <td><code>${esc(t.name)}</code></td>
+            <td class="ctrl-type">${esc(t.params.join(', ')) || '&mdash;'}</td>
+            <td title="${esc(t.summary)}">${esc(t.summary)}</td>
+        </tr>`).join('');
+
+    container.innerHTML = `
+        <div class="article-header">
+            <h1 class="article-title">Connecting an AI (MCP)</h1>
+            <div class="article-tagline">From DeskDriver Wiki, the free desktop automation encyclopedia</div>
+        </div>
+
+        <div class="hatnote">
+            DeskDriver is an <strong>MCP server</strong> (Model Context Protocol). An AI client that connects to it
+            gets ${(setup.tools || []).length} tools to see and drive this desktop: list windows, click learned controls,
+            press hotkeys, type and read the roadmap shown on this wiki. The client starts the server itself; this
+            dashboard does not need to be running.
+        </div>
+
+        <div class="hatnote" style="border-left: 4px solid #f2994a; background: #fffdf5;">
+            ⚠️ A connected AI controls your <strong>real</strong> mouse and keyboard. Keep an eye on it, and remove
+            the <code>deskdriver</code> entry from the client's config to revoke access.
+        </div>
+
+        <h2 class="wiki-h2">1 Claude Desktop</h2>
+        <p>Open <em>Settings → Developer → Edit Config</em> (the file is <code>%APPDATA%\\Claude\\claude_desktop_config.json</code>),
+           merge this in, save and restart Claude Desktop:</p>
+        ${block(0)}
+
+        <h2 class="wiki-h2">2 Claude Code</h2>
+        <p>Run once in a terminal. <code>--scope user</code> makes DeskDriver available in every project; check it with <code>claude mcp list</code>.</p>
+        ${block(1)}
+
+        <h2 class="wiki-h2">3 Cursor, Antigravity and other MCP clients</h2>
+        <p>Most clients use the same <code>mcpServers</code> format as Claude Desktop: in Cursor it goes in
+           <code>%USERPROFILE%\\.cursor\\mcp.json</code>, in Antigravity under <em>Manage MCP Servers → View raw config</em>.
+           VS Code (GitHub Copilot) uses <code>.vscode/mcp.json</code> with a <code>servers</code> key:</p>
+        ${block(2)}
+
+        <h2 class="wiki-h2">4 Check that it works</h2>
+        <p>Start a new chat and ask: <em>"Use DeskDriver to list my open windows."</em> The AI should call
+           <code>list_windows</code>. If the tools don't show up, restart the client, and make sure the paths above
+           still exist (they point at this project's virtual environment and <code>server.py</code>).</p>
+
+        <h2 class="wiki-h2">5 Available tools (${(setup.tools || []).length})</h2>
+        <table class="wikitable compact-table">
+            <colgroup><col style="width:24%"><col style="width:26%"><col></colgroup>
+            <thead><tr><th>Tool</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>${toolRows}</tbody>
+        </table>
+    `;
+}
+
 function renderTesterPage(container) {
     container.innerHTML = `
         <div class="article-header">

@@ -4,6 +4,7 @@ Interactive encyclopedic knowledge base served locally at http://localhost:8765
 Run: .\\.venv\\Scripts\\python dashboard.py
 """
 
+import ast
 import sys
 import json
 import webbrowser
@@ -23,6 +24,38 @@ from deskdriver.core.keyboard import COMMON_HOTKEYS
 from deskdriver.navigation.history import load_scan_logs, record_scan_log
 
 PORT = 8765
+
+PROJECT_ROOT = Path(__file__).parent
+MCP_SERVER_SCRIPT = PROJECT_ROOT / "server.py"
+MCP_SERVER_MODULE = PROJECT_ROOT / "src" / "deskdriver" / "server.py"
+
+
+def mcp_python() -> str:
+    """The interpreter an MCP client should launch: the project venv if there is one."""
+    venv = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+    return str(venv if venv.exists() else Path(sys.executable))
+
+
+def mcp_tools() -> list[dict]:
+    """
+    The MCP tools deskdriver/server.py registers ({name, params, summary}), read from
+    its source so the wiki always matches the server without importing the MCP SDK.
+    """
+    tree = ast.parse(MCP_SERVER_MODULE.read_text(encoding="utf-8"))
+    tools = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not any(isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "tool" for d in node.decorator_list):
+            continue
+        args = node.args.args
+        defaults = [None] * (len(args) - len(node.args.defaults)) + list(node.args.defaults)
+        params = [a.arg + (f"={ast.unparse(d)}" if d is not None else "") for a, d in zip(args, defaults)]
+        doc = (ast.get_docstring(node) or "").strip()
+        summary = " ".join(doc.split("\n\n")[0].split())  # first paragraph, one line
+        tools.append({"name": node.name, "params": params, "summary": summary})
+    return tools
+
 
 # The page itself lives in web/ (index.html, style.css, app.js)
 WEB_DIR = Path(__file__).parent / "web"
@@ -139,6 +172,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def get_actions(self, parsed):
         return {"actions": am.load_saved_actions()}
+
+    def get_mcp_setup(self, parsed):
+        return {
+            "python": mcp_python(),
+            "server_script": str(MCP_SERVER_SCRIPT),
+            "tools": mcp_tools(),
+        }
 
     def get_app_tree(self, parsed):
         query = parse_qs(parsed.query).get("app", [""])[0]
@@ -272,6 +312,7 @@ GET_ROUTES = {
     "/api/stats": DashboardHandler.get_stats,
     "/api/actions": DashboardHandler.get_actions,
     "/api/app_tree": DashboardHandler.get_app_tree,
+    "/api/mcp_setup": DashboardHandler.get_mcp_setup,
     "/api/logs": DashboardHandler.get_logs,
     "/api/record/status": DashboardHandler.get_record_status,
 }

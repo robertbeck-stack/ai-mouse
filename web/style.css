@@ -659,3 +659,22 @@ code.recipe:hover {
 #toast .toast-close:hover {
     color: #ffffff;
 }
+
+/* MCP setup snippets */
+.mcp-snippet {
+    position: relative;
+    margin: 8px 0 18px;
+}
+.mcp-snippet pre {
+    background: #f8f9fa;
+    border: 1px solid #c8ccd1;
+    padding: 10px 12px;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre;
+}
+.mcp-snippet .btn-sm {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}

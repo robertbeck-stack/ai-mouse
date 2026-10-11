@@ -129,6 +129,10 @@ python tests/test_deskdriver.py # end-to-end suite, drives real windows
 
 DeskDriver exposes a high-performance **MCP Server** ready for integration with Claude Desktop, Antigravity, Cursor, and any MCP-compliant client.
 
+The easiest way to connect a client is the wiki's **🤖 AI / MCP Setup** page: it shows
+ready-to-paste configs for Claude Desktop, Claude Code, Cursor, Antigravity and VS Code
+with the real paths on your machine, plus the current tool list.
+
 ### Configuration (`claude_desktop_config.json`)
 
 Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_desktop_config.json`):
@@ -138,11 +142,13 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
   "mcpServers": {
     "deskdriver": {
       "command": "C:\\path\\to\\deskdriver\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "deskdriver.server"]
+      "args": ["C:\\path\\to\\deskdriver\\server.py"]
     }
   }
 }
 ```
+
+Claude Code: `claude mcp add --scope user deskdriver -- "C:\path\to\deskdriver\.venv\Scripts\python.exe" "C:\path\to\deskdriver\server.py"`
 
 ### Available MCP Tools
 
