@@ -3,20 +3,66 @@ Model Context Protocol (MCP) Server for ai-mouse.
 Exposes modular tools to AI agents.
 """
 
+import functools
+import logging
+import sys
+import time
+
 from mcp.server.mcpserver import MCPServer
 import deskdriver as am
 
 server = MCPServer("deskdriver")
 
+# One line per tool call on stderr, which MCP clients keep in their server log
+# (Claude Desktop: %LOCALAPPDATA%\Claude\logs\mcp-server-deskdriver.log).
+log = logging.getLogger("deskdriver.mcp")
+if not log.handlers:
+    _handler = logging.StreamHandler(sys.stderr)
+    _handler.setFormatter(logging.Formatter("%(asctime)s deskdriver %(message)s"))
+    log.addHandler(_handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
-@server.tool()
+# Arguments that can hold what the user types: logged by length only
+PRIVATE_ARGS = {"text", "action"}
+
+
+def _summarize(name: str, value) -> str:
+    if name in PRIVATE_ARGS and isinstance(value, str):
+        return f"{name}=<{len(value)} chars>"
+    if name == "strokes" and isinstance(value, list):
+        return f"strokes=<{len(value)} strokes, {sum(len(s) for s in value)} points>"
+    text = repr(value)
+    return f"{name}={text if len(text) <= 40 else text[:37] + '...'}"
+
+
+def logged_tool():
+    """server.tool() that also logs each call's arguments, outcome and duration."""
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            t0 = time.perf_counter()
+            outcome = "exception"
+            try:
+                result = fn(*args, **kwargs)
+                outcome = "error" if isinstance(result, dict) and "error" in result else (
+                    result.get("status", "ok") if isinstance(result, dict) else "ok")
+                return result
+            finally:
+                params = ", ".join(_summarize(k, v) for k, v in kwargs.items())
+                log.info("tool %s(%s) -> %s in %.2fs", fn.__name__, params, outcome, time.perf_counter() - t0)
+        return server.tool()(wrapper)
+    return decorate
+
+
+@logged_tool()
 def get_mouse_position() -> dict:
     """Get the current (x, y) screen coordinates of the mouse cursor."""
     x, y = am.get_mouse_position()
     return {"x": x, "y": y}
 
 
-@server.tool()
+@logged_tool()
 def move_mouse(x: int, y: int, smooth: bool = True, duration: float = 0.25) -> dict:
     """
     Move the mouse cursor to (x, y) coordinates.
@@ -27,7 +73,7 @@ def move_mouse(x: int, y: int, smooth: bool = True, duration: float = 0.25) -> d
     return {"status": "moved", "x": curr_x, "y": curr_y}
 
 
-@server.tool()
+@logged_tool()
 def click(button: str = "left", clicks: int = 1) -> dict:
     """
     Click at current mouse position.
@@ -39,7 +85,7 @@ def click(button: str = "left", clicks: int = 1) -> dict:
     return {"status": "clicked", "button": button, "clicks": clicks, "at_x": x, "at_y": y}
 
 
-@server.tool()
+@logged_tool()
 def move_and_click(
     x: int, y: int, button: str = "left", clicks: int = 1, smooth: bool = True, duration: float = 0.25
 ) -> dict:
@@ -48,7 +94,7 @@ def move_and_click(
     return {"status": "moved_and_clicked", "button": button, "clicks": clicks, "x": x, "y": y}
 
 
-@server.tool()
+@logged_tool()
 def mouse_scroll(delta: int = 120) -> dict:
     """
     Scroll the mouse wheel vertically.
@@ -58,7 +104,7 @@ def mouse_scroll(delta: int = 120) -> dict:
     return {"status": "scrolled", "delta": delta}
 
 
-@server.tool()
+@logged_tool()
 def drag_and_drop(
     start_x: int,
     start_y: int,
@@ -73,7 +119,7 @@ def drag_and_drop(
 
 
 
-@server.tool()
+@logged_tool()
 def draw(window_search: str, strokes: list[list[list[int]]]) -> dict:
     """
     Draw a whole picture in a window (Paint, whiteboard, canvas) in ONE call.
@@ -97,13 +143,13 @@ def draw(window_search: str, strokes: list[list[list[int]]]) -> dict:
     return am.draw_strokes(window_search, strokes)
 
 
-@server.tool()
+@logged_tool()
 def window_geometry(window_search: str) -> dict:
     """Window and client-area rectangles (screen coordinates) of an app's window, for planning draw() coordinates."""
     return am.window_geometry(window_search)
 
 
-@server.tool()
+@logged_tool()
 def press_hotkey(hotkey: str) -> dict:
     """
     Press and release a keyboard combination (e.g. 'ctrl+s', 'win+shift+s', 'ctrl+t', 'enter').
@@ -113,7 +159,7 @@ def press_hotkey(hotkey: str) -> dict:
     return {"status": "hotkey_executed", "hotkey": hotkey}
 
 
-@server.tool()
+@logged_tool()
 def type_text(text: str, enter: bool = False) -> dict:
     """
     Type Unicode text directly into the focused input or window.
@@ -124,7 +170,7 @@ def type_text(text: str, enter: bool = False) -> dict:
 
 
 
-@server.tool()
+@logged_tool()
 def inspect_under_cursor() -> dict:
     """
     Inspect the exact UI element currently under the mouse cursor.
@@ -133,19 +179,19 @@ def inspect_under_cursor() -> dict:
     return am.get_element_under_cursor()
 
 
-@server.tool()
+@logged_tool()
 def inspect_at(x: int, y: int) -> dict:
     """Inspect the UI element located at coordinates (x, y) without moving the mouse."""
     return am.get_element_at(x, y)
 
 
-@server.tool()
+@logged_tool()
 def list_windows() -> list[dict]:
     """List all open and visible application windows on the desktop."""
     return am.list_windows()
 
 
-@server.tool()
+@logged_tool()
 def focus_window(title_or_hwnd: str) -> dict:
     """Bring a window to foreground and give it focus."""
     target = int(title_or_hwnd) if title_or_hwnd.isdigit() else title_or_hwnd
@@ -153,14 +199,14 @@ def focus_window(title_or_hwnd: str) -> dict:
     return {"success": success, "target": title_or_hwnd}
 
 
-@server.tool()
+@logged_tool()
 def list_clickable_elements(window_search: str = "", max_elements: int = 40) -> list[dict]:
     """Find clickable/interactive elements in the active or searched window."""
     search = window_search.strip() if window_search else None
     return am.list_clickable_elements(window_search=search, max_elements=max_elements)
 
 
-@server.tool()
+@logged_tool()
 def fast_click(element_name: str, window_search: str = "", instant: bool = True) -> dict:
     """
     High-speed click on an element by name (e.g. 'System', 'Reload', 'Minimise').
@@ -170,7 +216,7 @@ def fast_click(element_name: str, window_search: str = "", instant: bool = True)
     return am.fast_click_element(element_name=element_name, window_search=window_search, instant=instant)
 
 
-@server.tool()
+@logged_tool()
 def fill_input(
     element_name: str,
     text: str,
@@ -193,7 +239,7 @@ def fill_input(
 
 
 
-@server.tool()
+@logged_tool()
 def open_fastpath(target: str) -> dict:
     """
     Direct zero-click OS shortcut to navigate Windows settings or tools.
@@ -203,7 +249,7 @@ def open_fastpath(target: str) -> dict:
     return {"success": success, "target": target}
 
 
-@server.tool()
+@logged_tool()
 def get_roadmap_stats() -> dict:
     """Inspect what applications and elements have been learned into the UI roadmap cache."""
     apps = {}
@@ -212,7 +258,7 @@ def get_roadmap_stats() -> dict:
     return {"mapped_applications": apps, "total_apps": len(apps)}
 
 
-@server.tool()
+@logged_tool()
 def system_prelearn(max_elements_per_app: int = 50) -> dict:
     """
     Scan all open windows and the Windows Taskbar to discover and index interactive controls
@@ -222,7 +268,7 @@ def system_prelearn(max_elements_per_app: int = 50) -> dict:
 
 
 
-@server.tool()
+@logged_tool()
 def snap_window(window_search: str, side: str = "left") -> dict:
     """
     Snap a window to screen halves or quadrants ('left', 'right', 'top', 'bottom', 'center', 'full').
@@ -231,28 +277,28 @@ def snap_window(window_search: str, side: str = "left") -> dict:
     return {"status": "snapped" if success else "failed", "window": window_search, "side": side}
 
 
-@server.tool()
+@logged_tool()
 def maximize_window(window_search: str) -> dict:
     """Maximize a target application window."""
     success = am.maximize_window(window_search)
     return {"status": "maximized" if success else "failed", "window": window_search}
 
 
-@server.tool()
+@logged_tool()
 def minimize_window(window_search: str) -> dict:
     """Minimize a target application window."""
     success = am.minimize_window(window_search)
     return {"status": "minimized" if success else "failed", "window": window_search}
 
 
-@server.tool()
+@logged_tool()
 def move_window(window_search: str, x: int, y: int, width: int, height: int) -> dict:
     """Reposition and resize a target application window."""
     success = am.move_window(window_search, x, y, width, height)
     return {"status": "moved" if success else "failed", "window": window_search, "x": x, "y": y, "width": width, "height": height}
 
 
-@server.tool()
+@logged_tool()
 def clipboard_paste(text: str) -> dict:
     """
     Instantly paste multi-line or long text (0.5 ms) into the focused field via clipboard and Ctrl+V.
@@ -261,14 +307,14 @@ def clipboard_paste(text: str) -> dict:
     return {"status": "pasted" if success else "failed", "length": len(text)}
 
 
-@server.tool()
+@logged_tool()
 def clipboard_get() -> dict:
     """Read the current plain text stored on the Windows clipboard."""
     text = am.get_clipboard_text()
     return {"text": text, "length": len(text)}
 
 
-@server.tool()
+@logged_tool()
 def record_current_element(custom_name: str = "") -> dict:
     """
     Record on Hover: inspects the element currently under the mouse cursor
@@ -277,7 +323,7 @@ def record_current_element(custom_name: str = "") -> dict:
     return am.record_element_at_cursor(custom_name=custom_name)
 
 
-@server.tool()
+@logged_tool()
 def auto_record_window(window_search: str = "", move_cursor: bool = True, max_elements: int = 150) -> dict:
     """
     Automatically discovers controls in a window, glides the mouse cursor over each
@@ -286,7 +332,7 @@ def auto_record_window(window_search: str = "", move_cursor: bool = True, max_el
     return am.auto_record_window(window_search=window_search, move_cursor=move_cursor, max_elements=max_elements)
 
 
-@server.tool()
+@logged_tool()
 def deep_dive_app(window_search: str = "", max_depth: int = 15, max_elements: int = 500) -> dict:
     """
     Exhaustive Deep Dive: Inspects every menu command (legacy Win32 and modern),
@@ -297,7 +343,7 @@ def deep_dive_app(window_search: str = "", max_depth: int = 15, max_elements: in
 
 
 
-@server.tool()
+@logged_tool()
 def wait_for_window(window_search: str, timeout: float = 3.0) -> dict:
     """
     Poll until a target window appears and becomes visible.
@@ -309,7 +355,7 @@ def wait_for_window(window_search: str, timeout: float = 3.0) -> dict:
     return {"status": "timeout", "error": f"Window {window_search!r} did not appear within {timeout}s"}
 
 
-@server.tool()
+@logged_tool()
 def wait_for_element(element_name: str, window_search: str = "", timeout: float = 3.0) -> dict:
     """
     Poll until a specific UI control/button is ready and rendered.
@@ -320,7 +366,7 @@ def wait_for_element(element_name: str, window_search: str = "", timeout: float 
     return {"status": "timeout", "error": f"Element {element_name!r} not found within {timeout}s"}
 
 
-@server.tool()
+@logged_tool()
 def wait_and_click(element_name: str, window_search: str = "", timeout: float = 3.0, instant: bool = True) -> dict:
     """
     Wait for an element to appear and click it in one atomic action.
@@ -328,7 +374,7 @@ def wait_and_click(element_name: str, window_search: str = "", timeout: float = 
     return am.wait_and_click(element_name, window_search=window_search, timeout=timeout, instant=instant)
 
 
-@server.tool()
+@logged_tool()
 def execute_action(action: str) -> dict:
     """
     Execute a multi-step desktop workflow serialized as a single string.
@@ -339,7 +385,7 @@ def execute_action(action: str) -> dict:
     return am.execute_action(action)
 
 
-@server.tool()
+@logged_tool()
 def save_action(name: str, action: str) -> dict:
     """
     Save or update a named reusable action pipeline string into saved_actions.json.
@@ -347,7 +393,7 @@ def save_action(name: str, action: str) -> dict:
     return am.save_action(name, action)
 
 
-@server.tool()
+@logged_tool()
 def list_saved_actions() -> dict:
     """
     List all saved reusable desktop action pipelines.
@@ -355,7 +401,7 @@ def list_saved_actions() -> dict:
     return {"actions": am.load_saved_actions()}
 
 
-@server.tool()
+@logged_tool()
 def get_application_tree(application: str) -> dict:
     """
     Build dynamic parent-child navigation tree for an application or Windows Settings.
