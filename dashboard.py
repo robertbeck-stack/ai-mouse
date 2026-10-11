@@ -1808,6 +1808,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                     btn.innerText = '⚡ System Scan';
                 }
             }
+        }
+
         let isRecordingLive = false;
         let recInterval = null;
         let recSeconds = 0;
