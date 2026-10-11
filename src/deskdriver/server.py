@@ -248,7 +248,7 @@ def record_current_element(custom_name: str = "") -> dict:
 
 
 @server.tool()
-def auto_record_window(window_search: str = "", move_cursor: bool = True, max_elements: int = 25) -> dict:
+def auto_record_window(window_search: str = "", move_cursor: bool = True, max_elements: int = 150) -> dict:
     """
     Automatically discovers controls in a window, glides the mouse cursor over each
     one with human-like Bézier motion to visually verify, and persists coordinates into ui_roadmap.json.

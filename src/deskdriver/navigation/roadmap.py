@@ -70,10 +70,13 @@ class UIRoadmap:
             anchor_right = rel_x > (win_w * 0.65)
             anchor_bottom = rel_y > (win_h * 0.65)
 
+            existing_el = self.map[app_key]["elements"].get(name, {})
+            final_sc = el.get("shortcut", "") or existing_el.get("shortcut", "")
+
             self.map[app_key]["elements"][name] = {
                 "name": el["name"],
                 "control_type": el["control_type"],
-                "shortcut": el.get("shortcut", ""),
+                "shortcut": final_sc,
                 "rel_x": rel_x,
                 "rel_y": rel_y,
                 "anchor_right": anchor_right,
@@ -390,7 +393,7 @@ def wait_and_click(
 def auto_record_window(
     window_search: str = "",
     move_cursor: bool = True,
-    max_elements: int = 25,
+    max_elements: int = 150,
 ) -> dict:
     """
     Automatically discovers interactive controls in a target application,
@@ -442,8 +445,8 @@ def auto_record_window(
         cx = el["center_x"]
         cy = el["center_y"]
         if move_cursor and cx > 0 and cy > 0:
-            move_mouse(cx, cy, smooth=True, duration=0.14)
-            time.sleep(0.06)
+            move_mouse(cx, cy, smooth=True, duration=0.08)
+            time.sleep(0.02)
 
         roadmap.learn_window(target_win["title"], [el], target_win["rect"])
         recorded_names.append(name)
