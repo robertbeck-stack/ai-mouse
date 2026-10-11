@@ -249,6 +249,10 @@ HTML_CONTENT = """<!DOCTYPE html>
             white-space: nowrap;
             margin-right: 6px;
         }
+        .sidebar-key-sub {
+            font-family: var(--sans, sans-serif);
+            color: #54595d;
+        }
         .sidebar-badge {
             flex-shrink: 0;
             font-size: 11px;
@@ -887,10 +891,16 @@ HTML_CONTENT = """<!DOCTYPE html>
             for (const appKey of Object.keys(roadmap).filter(k => !isSubWindow(k, roadmap)).sort()) {
                 const appData = roadmap[appKey];
                 const count = Object.keys(appData.elements || {}).length;
+                // A window class sharing another app's exe ("explorer.exe#shell_traywnd")
+                // shows as "explorer.exe · Taskbar" instead of the raw class name
+                const hash = appKey.indexOf('#');
+                const keyHtml = hash > 0
+                    ? `${esc(appKey.slice(0, hash))}<span class="sidebar-key-sub"> · ${esc(appData.display_name || appKey.slice(hash + 1))}</span>`
+                    : esc(appKey);
                 const li = document.createElement('li');
                 li.innerHTML = `
-                    <a class="sidebar-item" id="side-app-${esc(appKey)}" title="${esc(appLabel(appKey))}" onclick="navigateTo('app', ${jsArg(appKey)})">
-                        <span class="sidebar-key">${esc(appKey)}</span>
+                    <a class="sidebar-item" id="side-app-${esc(appKey)}" title="${esc(appLabel(appKey))} (${esc(appKey)})" onclick="navigateTo('app', ${jsArg(appKey)})">
+                        <span class="sidebar-key">${keyHtml}</span>
                         <span class="sidebar-badge">${count}</span>
                     </a>
                 `;
