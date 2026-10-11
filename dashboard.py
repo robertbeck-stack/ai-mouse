@@ -357,26 +357,27 @@ HTML_CONTENT = """<!DOCTYPE html>
         }
         .infobox-image {
             text-align: center;
-            padding: 10px;
-            font-size: 42px;
+            padding: 2px;
+            font-size: 28px;
         }
+        /* One line per row; long values are cut with "…" (full value in the tooltip) */
         .infobox table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .infobox th, .infobox td {
+            padding: 3px 6px;
+            color: #202122;
+            border-top: 1px solid #eaecf0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .infobox th {
             text-align: left;
-            padding: 4px 6px;
-            color: #202122;
-            width: 40%;
+            width: 32%;
             font-weight: bold;
-            vertical-align: top;
-            border-top: 1px solid #eaecf0;
-        }
-        .infobox td {
-            padding: 4px 6px;
-            color: #202122;
-            border-top: 1px solid #eaecf0;
         }
 
         /* TABLE OF CONTENTS */
@@ -1087,14 +1088,14 @@ HTML_CONTENT = """<!DOCTYPE html>
             }
 
             const canvasBadge = proc.is_canvas_game ? `
-                <tr><th>Engine Surface</th><td><span class="scan-badge scan-badge-actionpipeline" style="font-weight:bold;">🎮 ${esc(proc.engine)}</span></td></tr>
+                <tr><th>Engine</th><td><span class="scan-badge scan-badge-actionpipeline" style="font-weight:bold;">🎮 ${esc(proc.engine)}</span></td></tr>
             ` : '';
 
             const procRows = proc.pid ? `
-                <tr><th>Process</th><td><code>${esc(proc.exe_name || 'N/A')}</code> (PID: ${esc(proc.pid)})</td></tr>
-                <tr><th>Window Class</th><td><code>${esc(proc.class_name || 'N/A')}</code></td></tr>
+                <tr><th>Process</th><td><code>${esc(proc.exe_name || 'N/A')}</code> · PID ${esc(proc.pid)}</td></tr>
+                <tr><th>Class</th><td><code>${esc(proc.class_name || 'N/A')}</code></td></tr>
                 ${canvasBadge}
-                <tr><th>Resolution & DPI</th><td>${esc(proc.dpi ? proc.dpi + ' DPI' : '96 DPI')} &bull; ${esc(proc.architecture || 'x64')}</td></tr>
+                <tr><th>DPI</th><td>${esc(proc.dpi || 96)} · ${esc(proc.architecture || 'x64')}</td></tr>
             ` : '';
 
             container.innerHTML = `
@@ -1116,9 +1117,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <table>
                         <tr><th>App Key</th><td><code>${esc(appKey)}</code></td></tr>
                         ${procRows}
-                        <tr><th>Indexed Controls</th><td><strong>${elements.length}</strong> items</td></tr>
-                        <tr><th>Shortcuts</th><td><strong>${hotkeyElements.length}</strong> hotkeys</td></tr>
-                        <tr><th>Cache Storage</th><td><code>${esc((fullData.storage_files || {})[appKey] || 'ui_roadmap/')}</code></td></tr>
+                        <tr><th>Controls</th><td><strong>${elements.length}</strong></td></tr>
+                        <tr><th>Shortcuts</th><td><strong>${hotkeyElements.length}</strong></td></tr>
+                        <tr><th>Storage</th><td><code>${esc((fullData.storage_files || {})[appKey] || 'ui_roadmap/')}</code></td></tr>
                     </table>
                 </div>
 
@@ -1191,6 +1192,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
             `;
 
+            // Infobox values are cut to one line; show the full text on hover
+            container.querySelectorAll('.infobox td').forEach(td => { td.title = td.textContent.trim(); });
             loadAppTree(appKey);
         }
 
