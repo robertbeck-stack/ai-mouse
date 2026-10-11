@@ -23,11 +23,12 @@ def cached_target_present(cached: dict) -> bool:
     Is the cached element still where the roadmap says? Checks the element at its
     position (and a few ancestors, since the hit is often the label inside a button)
     by name, or by control type for unnamed controls ("button @ 62,985").
-    Unverifiable positions (UIA error) count as present.
+    A position UIA can't read counts as absent (the caller rescans): it is usually
+    an elevated or protected window, which wouldn't accept the click anyway.
     """
     found = elements_at(cached["center_x"], cached["center_y"])
     if not found:
-        return True
+        return False
     name = (cached.get("name") or "").strip().lower()
     if " @ " in name:
         return any(ct == cached.get("control_type") for _, ct in found)
@@ -85,8 +86,8 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
         hk = COMMON_HOTKEYS[target_clean]
         if window_search:
             win = find_app_window(window_search, list_windows())
-            if win:
-                focus_window(win["hwnd"])
+            if win and not focus_window(win["hwnd"]):
+                return {"error": f"Could not bring {win['title']!r} to the front; hotkey not sent"}
         press_hotkey(hk)
         return {"status": "universal_hotkey_executed", "action": element_name, "hotkey": hk}
 
@@ -95,7 +96,9 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
     if not target_win:
         return {"error": "Target window not found"}
 
-    focus_window(target_win["hwnd"])
+    if not focus_window(target_win["hwnd"]):
+        # Clicking anyway would hit whatever window is in front instead
+        return {"error": f"Could not bring {target_win['title']!r} to the front; nothing was clicked"}
     app_key = identify_window(target_win["hwnd"]).key
 
     # 4. Check Roadmap Cache

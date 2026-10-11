@@ -115,24 +115,41 @@ def focus_window(hwnd_or_title: int | str) -> bool:
     if not target_hwnd:
         return False
 
+    def in_front() -> bool:
+        fg = user32.GetForegroundWindow()
+        return bool(fg) and int(user32.GetAncestor(fg, 2) or fg) == int(target_hwnd)  # GA_ROOT
+
     try:
-        fg_hwnd = user32.GetForegroundWindow()
-        fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None)
-        cur_thread = kernel32.GetCurrentThreadId()
-
-        if fg_thread != cur_thread:
-            user32.AttachThreadInput(cur_thread, fg_thread, True)
-
         if user32.IsIconic(target_hwnd):
             user32.ShowWindow(target_hwnd, 9)  # SW_RESTORE (only when minimized, so maximized windows stay maximized)
-        user32.BringWindowToTop(target_hwnd)
-        user32.SetForegroundWindow(target_hwnd)
+        if in_front():
+            return True
 
-        if fg_thread != cur_thread:
-            user32.AttachThreadInput(cur_thread, fg_thread, False)
-
-        time.sleep(0.15)
-        return True
+        for attempt in range(3):
+            fg_hwnd = user32.GetForegroundWindow()
+            fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None)
+            cur_thread = kernel32.GetCurrentThreadId()
+            # Windows only lets the process that received the last input event change
+            # the foreground window. A background process (the MCP server, the
+            # dashboard) earns that right by sending input: first a zero-length mouse
+            # move, then an Alt tap (which can flash the old window's menu bar).
+            if attempt == 1:
+                user32.mouse_event(0x0001, 0, 0, 0, 0)  # MOUSEEVENTF_MOVE by (0, 0)
+            elif attempt == 2:
+                user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU down
+                user32.keybd_event(0x12, 0, 2, 0)  # VK_MENU up (KEYEVENTF_KEYUP)
+            attached = fg_thread != cur_thread and user32.AttachThreadInput(cur_thread, fg_thread, True)
+            try:
+                user32.BringWindowToTop(target_hwnd)
+                user32.SetForegroundWindow(target_hwnd)
+            finally:
+                if attached:
+                    user32.AttachThreadInput(cur_thread, fg_thread, False)
+            time.sleep(0.1)
+            if in_front():
+                return True
+        # Report failure: clicks and keystrokes would land in whatever window is in front
+        return False
     except Exception:
         return False
 

@@ -13,6 +13,7 @@ from deskdriver.core.mouse import move_and_click, drag_and_drop
 from deskdriver.core.keyboard import press_hotkey, type_text
 from deskdriver.automation.windows import focus_window, foreground_root, snap_window
 from deskdriver.automation.appid import wait_for_app_window
+from deskdriver.automation.uia import find_open_menu_item
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.interact import fast_click_element, fill_input, wait_for_element
 from deskdriver.navigation.deepdive import deep_dive_app
@@ -140,6 +141,8 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
     # having clicks and keystrokes land in the wrong window.
     target_hwnd = None
     interrupted = ""
+    # After a right-click the next named click is usually an item of the context menu
+    menu_open = False
 
     for idx, step in enumerate(steps):
         verb = step["verb"]
@@ -161,9 +164,9 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                 # 2. Window already exists?
                 win = wait_for_app_window(arg, timeout=0.3)
                 if win:
-                    focus_window(win["hwnd"])
                     target_hwnd = win["hwnd"]
-                    results.append({"step": idx + 1, "action": f"focused existing '{arg}'", "status": "ok"})
+                    ok = focus_window(win["hwnd"])
+                    results.append({"step": idx + 1, "action": f"focused existing '{arg}'" if ok else f"could not bring '{arg}' to the front", "status": "ok" if ok else "error"})
                 else:
                     # Launch executable
                     try:
@@ -180,9 +183,9 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
             elif verb in ("focus", "window", "app"):
                 w = wait_for_app_window(arg, timeout=2.0)
                 if w:
-                    focus_window(w["hwnd"])
                     target_hwnd = w["hwnd"]
-                    results.append({"step": idx + 1, "action": f"focused '{arg}'", "status": "ok"})
+                    ok = focus_window(w["hwnd"])
+                    results.append({"step": idx + 1, "action": f"focused '{arg}'" if ok else f"could not bring '{arg}' to the front", "status": "ok" if ok else "error"})
                 else:
                     results.append({"step": idx + 1, "action": f"window '{arg}' not found", "status": "warning"})
 
@@ -194,8 +197,13 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                     move_and_click(cx, cy, smooth=True, duration=0.1)
                     results.append({"step": idx + 1, "action": f"clicked coordinates ({cx}, {cy})", "status": "ok"})
                 else:
-                    res = fast_click_element(arg)
-                    results.append({"step": idx + 1, "action": f"click '{arg}'", "status": _step_status(res)})
+                    menu_point = find_open_menu_item(arg) if menu_open else None
+                    if menu_point:
+                        move_and_click(*menu_point, smooth=True, duration=0.1)
+                        results.append({"step": idx + 1, "action": f"clicked menu item '{arg}'", "status": "ok"})
+                    else:
+                        res = fast_click_element(arg)
+                        results.append({"step": idx + 1, "action": f"click '{arg}'", "status": _step_status(res)})
 
             elif verb in ("doubleclick", "dblclick", "rightclick", "rclick"):
                 is_right = verb in ("rightclick", "rclick")
@@ -267,6 +275,10 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
             else:
                 results.append({"step": idx + 1, "action": f"unknown verb '{verb}'", "status": "skipped"})
 
+            # The menu stays open only for the step right after the right-click (a short wait included)
+            menu_open = verb in ("rightclick", "rclick") or (menu_open and verb in ("wait", "sleep"))
+            if menu_open and verb in ("rightclick", "rclick"):
+                time.sleep(0.25)  # give the menu time to open
             if interval > 0:
                 time.sleep(interval)
 

@@ -2,6 +2,8 @@
 UI Automation element detection, cursor inspection, and interactive control scanning.
 """
 
+import ctypes
+
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.core.mouse import get_mouse_position
 from deskdriver.automation.windows import list_windows, user32
@@ -122,6 +124,50 @@ def get_element_at(x: int, y: int) -> dict:
 
 # Alias for consistency with server tools
 inspect_at = get_element_at
+
+
+MENU_ITEM_TYPES = ("MenuItemControl", "ListItemControl", "ButtonControl")
+
+
+def find_open_menu_item(name: str, max_depth: int = 8) -> tuple[int, int] | None:
+    """
+    Center of an item named `name` in an open context / popup menu, or None.
+    Popup menus are untitled top-level windows (#32768, XAML and Chromium popups),
+    which list_windows() leaves out, so a right-click's menu needs its own search.
+    """
+    ensure_desktop()
+    want = (name or "").strip().lower()
+    if not want:
+        return None
+    popups = []
+    enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def cb(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) == 0:
+            popups.append(hwnd)
+        return True
+
+    user32.EnumWindows(enum_proc(cb), 0)
+    for hwnd in popups[:40]:  # z-order: a just-opened menu is near the top
+        try:
+            root = auto.ControlFromHandle(hwnd)
+        except Exception:
+            continue
+        stack = [(root, 0)]
+        while stack:
+            ctrl, depth = stack.pop()
+            try:
+                if ctrl.ControlTypeName in MENU_ITEM_TYPES:
+                    label = (ctrl.Name or "").strip().lower()
+                    if label == want or label.startswith(want + "\t") or label.startswith(want + " "):
+                        r = ctrl.BoundingRectangle
+                        if r.right > r.left and r.bottom > r.top:
+                            return (r.left + r.right) // 2, (r.top + r.bottom) // 2
+                if depth < max_depth:
+                    stack.extend((child, depth + 1) for child in ctrl.GetChildren())
+            except Exception:
+                continue
+    return None
 
 
 def elements_at(x: int, y: int, ancestors: int = 3) -> list[tuple[str, str]]:

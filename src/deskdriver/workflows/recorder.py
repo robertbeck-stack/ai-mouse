@@ -13,7 +13,7 @@ import time
 from typing import Any
 
 from deskdriver.core.desktop import ensure_desktop
-from deskdriver.automation.windows import user32
+from deskdriver.automation.windows import user32, window_at
 from deskdriver.automation.uia import get_element_at
 from deskdriver.navigation.roadmap import roadmap
 from deskdriver.automation.appid import identify_window
@@ -21,6 +21,58 @@ from deskdriver.navigation.history import record_scan_log
 from deskdriver.navigation.deepdive import deep_dive_app
 
 SCAN_MAX_ELEMENTS = 250
+
+VK_LBUTTON, VK_RBUTTON = 0x01, 0x02
+CLICK_VERBS = {"left": "click", "right": "rightclick"}
+DOUBLE_CLICK_DISTANCE = 4  # px, like SM_CXDOUBLECLK
+# Windows the recorder must not record: the dashboard that controls it
+IGNORED_TITLES = ("deskdriver wiki",)
+
+
+def is_ignored_title(title: str) -> bool:
+    low = (title or "").lower()
+    return any(t in low for t in IGNORED_TITLES)
+
+
+def click_action(button: str, name: str, x: int, y: int) -> str:
+    """Pipeline step for a click: by element name when known, else by screen position."""
+    target = name if name and name != "(no text)" else f"{x},{y}"
+    return f"{CLICK_VERBS[button]}:{target}"
+
+
+def merge_double_click(actions: list[dict], click: dict, double_click_time: float) -> bool:
+    """
+    Turn the previous left click into a double click if `click` repeats it within the
+    system double-click time and distance. Returns True when merged.
+    """
+    if click["button"] != "left" or not actions:
+        return False
+    prev = actions[-1]
+    if (prev.get("type") == "mouse_click" and prev.get("button") == "left"
+            and click["time"] - prev["time"] <= double_click_time
+            and abs(click["x"] - prev["x"]) <= DOUBLE_CLICK_DISTANCE
+            and abs(click["y"] - prev["y"]) <= DOUBLE_CLICK_DISTANCE):
+        prev["type"] = "mouse_double_click"
+        prev["action"] = prev["action"].replace("click:", "doubleclick:", 1)
+        return True
+    return False
+
+
+def pipeline_steps(actions: list[dict]) -> list[str]:
+    """
+    Recorded actions as pipeline steps. Only repeated focus steps collapse
+    (re-focusing the same window adds nothing); repeated clicks are real input
+    (pressing "+" twice) and stay.
+    """
+    steps = []
+    for item in actions:
+        act = item.get("action", "").strip()
+        if not act:
+            continue
+        if steps and act == steps[-1] and act.startswith("focus:"):
+            continue
+        steps.append(act)
+    return steps
 
 
 class SessionRecorder:
@@ -107,14 +159,7 @@ class SessionRecorder:
 
         elapsed = round(self._stop_time - self._start_time, 2)
 
-        # Assemble clean pipeline string without redundant repeated clicks
-        clean_steps = []
-        prev_act = ""
-        for item in self._actions:
-            act = item.get("action", "").strip()
-            if act and act != prev_act:
-                clean_steps.append(act)
-                prev_act = act
+        clean_steps = pipeline_steps(self._actions)
 
         pipeline_str = " | ".join(clean_steps)
 
@@ -156,8 +201,12 @@ class SessionRecorder:
         """Worker thread polling foreground window changes and mouse clicks."""
         ensure_desktop()
         last_hwnd = 0
-        last_lbutton = False
-        last_click_time = 0.0
+        pressed = {"left": False, "right": False}
+        double_click_time = user32.GetDoubleClickTime() / 1000.0
+        # GetAsyncKeyState reports physical buttons; with swapped buttons (left-handed
+        # setting) the primary "left" click is the physical right button
+        swapped = bool(user32.GetSystemMetrics(23))  # SM_SWAPBUTTON
+        buttons = (("left", VK_RBUTTON), ("right", VK_LBUTTON)) if swapped else (("left", VK_LBUTTON), ("right", VK_RBUTTON))
 
         buf = ctypes.create_unicode_buffer(512)
 
@@ -173,9 +222,8 @@ class SessionRecorder:
                     user32.GetWindowTextW(curr_hwnd, buf, 512)
                     title = buf.value.strip()
 
-                    # Avoid recording the dashboard itself or developer tools
-                    lt = title.lower()
-                    if title and "deskdriver wiki" not in lt and "dashboard" not in lt and "antigravity" not in lt:
+                    # Don't record the dashboard that is running the recorder
+                    if title and not is_ignored_title(title):
                         identity = identify_window(int(curr_hwnd))
                         app_key = identity.key
                         with self._lock:
@@ -197,44 +245,40 @@ class SessionRecorder:
 
                         last_hwnd = curr_hwnd
 
-                # 2. Detect User Left Clicks
-                is_lbutton_pressed = bool(user32.GetAsyncKeyState(0x01) & 0x8000)
-                if is_lbutton_pressed and not last_lbutton:
-                    now = time.time()
-                    if now - last_click_time > 0.15:
-                        last_click_time = now
-                        pt = wintypes.POINT()
-                        user32.GetCursorPos(ctypes.byref(pt))
-
-                        # Inspect element under cursor
-                        el = get_element_at(pt.x, pt.y)
-                        el_name = (el.get("name") or "").strip()
-                        ct = el.get("control_type", "")
-                        elapsed = round(now - self._start_time, 2)
-
-                        if el_name and el_name != "(no text)":
-                            act_str = f"click:{el_name}"
-                        else:
-                            act_str = f"click:{pt.x},{pt.y}"
-
-                        with self._lock:
-                            self._actions.append({
-                                "action": act_str,
-                                "type": "mouse_click",
-                                "name": el_name,
-                                "control_type": ct,
-                                "x": pt.x,
-                                "y": pt.y,
-                                "time": elapsed,
-                            })
-
-                last_lbutton = is_lbutton_pressed
+                # 2. Detect left / right clicks (on press, so a held drag counts once)
+                for button, vk in buttons:
+                    down = bool(user32.GetAsyncKeyState(vk) & 0x8000)
+                    if down and not pressed[button]:
+                        self._record_click(button, double_click_time)
+                    pressed[button] = down
 
             except Exception:
                 pass
 
             time.sleep(0.04)
 
+
+    def _record_click(self, button: str, double_click_time: float):
+        pt = wintypes.POINT()
+        user32.GetCursorPos(ctypes.byref(pt))
+        win = window_at(pt.x, pt.y)
+        if win and is_ignored_title(win["title"]):
+            return
+        now = time.time()
+        click = {"button": button, "x": pt.x, "y": pt.y, "time": round(now - self._start_time, 2)}
+        with self._lock:
+            if merge_double_click(self._actions, click, double_click_time):
+                return
+        el = get_element_at(pt.x, pt.y)
+        name = (el.get("name") or "").strip()
+        with self._lock:
+            self._actions.append({
+                **click,
+                "action": click_action(button, name, pt.x, pt.y),
+                "type": "mouse_click",
+                "name": name,
+                "control_type": el.get("control_type", ""),
+            })
 
     def _scan_loop(self, scan_queue: queue.Queue):
         """Worker thread: index each newly visited window without touching focus or the cursor."""
