@@ -9,6 +9,21 @@ from deskdriver.core.desktop import ensure_desktop
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+dwmapi = ctypes.windll.dwmapi
+
+DWMWA_CLOAKED = 14
+
+
+def is_window_cloaked(hwnd: int) -> bool:
+    """True for windows DWM keeps visible-but-hidden (suspended UWP frames, other virtual desktops)."""
+    cloaked = wintypes.DWORD(0)
+    try:
+        hr = dwmapi.DwmGetWindowAttribute(
+            wintypes.HWND(hwnd), DWMWA_CLOAKED, ctypes.byref(cloaked), ctypes.sizeof(cloaked)
+        )
+        return hr == 0 and cloaked.value != 0
+    except Exception:
+        return False
 
 
 def list_windows() -> list[dict]:
@@ -19,7 +34,7 @@ def list_windows() -> list[dict]:
     WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def cb(hwnd, lparam):
-        if user32.IsWindowVisible(hwnd):
+        if user32.IsWindowVisible(hwnd) and not is_window_cloaked(hwnd):
             length = user32.GetWindowTextLengthW(hwnd)
             if length > 0:
                 buff = ctypes.create_unicode_buffer(length + 1)
@@ -51,10 +66,12 @@ def list_windows() -> list[dict]:
 
 
 def find_window_hwnd(hwnd_or_title: int | str) -> int | None:
-    """Resolve an HWND or partial window title to an active HWND."""
+    """Resolve an HWND or partial window title to an active HWND. An empty title means the foreground window."""
     if isinstance(hwnd_or_title, int):
         return hwnd_or_title if user32.IsWindow(hwnd_or_title) else None
     q = str(hwnd_or_title).lower().strip()
+    if not q:
+        return user32.GetForegroundWindow() or None
     for w in list_windows():
         if q in w["title"].lower():
             return w["hwnd"]
@@ -76,7 +93,8 @@ def focus_window(hwnd_or_title: int | str) -> bool:
         if fg_thread != cur_thread:
             user32.AttachThreadInput(cur_thread, fg_thread, True)
 
-        user32.ShowWindow(target_hwnd, 9)  # SW_RESTORE
+        if user32.IsIconic(target_hwnd):
+            user32.ShowWindow(target_hwnd, 9)  # SW_RESTORE (only when minimized, so maximized windows stay maximized)
         user32.BringWindowToTop(target_hwnd)
         user32.SetForegroundWindow(target_hwnd)
 

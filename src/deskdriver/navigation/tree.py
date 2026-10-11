@@ -6,13 +6,10 @@ so AI agents and users can dynamically explore and execute nested commands with 
 """
 
 from typing import Any
-import uiautomation as auto
 
 from deskdriver.core.desktop import ensure_desktop
-from deskdriver.automation.windows import list_windows, focus_window
+from deskdriver.automation.windows import list_windows
 from deskdriver.navigation.roadmap import roadmap
-from deskdriver.navigation.hotkeys import extract_shortcut_from_name, APP_PROFILES
-from deskdriver.navigation.fastpaths import FASTPATHS
 
 
 WINDOWS_SETTINGS_TREE = {

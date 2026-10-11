@@ -2,7 +2,12 @@
 Self-check test suite for DeskDriver (and backward compatibility shim ai_mouse).
 """
 
+import atexit
+import hashlib
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -16,8 +21,36 @@ if str(root_path) not in sys.path:
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-import deskdriver as dd
-import ai_mouse as am
+# Run against a throwaway copy of the data so tests never write to the real roadmap,
+# scan history or saved actions (the copy keeps tests that need learned apps working).
+REAL_DATA_FILES = ["ui_roadmap", "scan_history.json", "saved_actions.json"]
+TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="deskdriver-test-"))
+for _name in REAL_DATA_FILES:
+    _src = root_path / _name
+    if _src.is_dir():
+        shutil.copytree(_src, TEST_DATA_DIR / _name)
+    elif _src.exists():
+        shutil.copy2(_src, TEST_DATA_DIR / _name)
+os.environ["DESKDRIVER_DATA_DIR"] = str(TEST_DATA_DIR)
+atexit.register(shutil.rmtree, TEST_DATA_DIR, True)
+
+
+def _real_data_fingerprint() -> str:
+    h = hashlib.sha256()
+    for name in REAL_DATA_FILES:
+        base = root_path / name
+        files = sorted(base.rglob("*")) if base.is_dir() else [base]
+        for f in files:
+            if f.is_file():
+                h.update(str(f.relative_to(root_path)).encode())
+                h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+REAL_DATA_BEFORE = _real_data_fingerprint()
+
+import deskdriver as dd  # noqa: E402  (must come after DESKDRIVER_DATA_DIR is set)
+import ai_mouse as am  # noqa: E402
 
 
 def test_shim_parity():
@@ -345,6 +378,107 @@ def test_session_recorder():
     print(f" -> Live SessionRecorder lifecycle verified (pipeline: '{res_stop.get('pipeline')}')")
 
 
+def test_review_regressions():
+    """Pure-logic checks for fixes from the code review (no desktop interaction, no disk writes)."""
+    import sys as _sys
+    import tempfile
+    print("Testing review regressions (canvas detection, matching, parsing, storage)...")
+    from deskdriver.navigation.deepdive import detect_canvas_game_surface
+    rm = _sys.modules["deskdriver.navigation.roadmap"]
+
+    # Canvas heuristic: UIA frameworks and capped / already-known scans are never canvases
+    assert not detect_canvas_game_surface("ApplicationFrameWindow", 2, 1200, 800)["is_canvas_game"]
+    assert not detect_canvas_game_surface("Chrome_WidgetWin_1", 3, 1200, 800, known_count=2000)["is_canvas_game"]
+    assert not detect_canvas_game_surface("MyEngineWnd", 5, 1200, 800, truncated=True)["is_canvas_game"]
+    assert detect_canvas_game_surface("UnityWndClass", 50, 1200, 800)["is_canvas_game"]
+    assert detect_canvas_game_surface("MyEngineWnd", 1, 1200, 800)["is_canvas_game"]
+
+    # App keys use whole words
+    assert dd.roadmap.get_app_key("Untitled - Paint") == "paint"
+    assert dd.roadmap.get_app_key("System Restore") != "Microsoft Store"
+    assert dd.roadmap.get_app_key("painting.docx - Word") != "paint"
+
+    # Element matching: no reverse-substring hits ("ok" must not match "bookmark")
+    els = {"ok": 1, "bookmark this tab": 1, "save": 1, "save as": 1}
+    assert rm.match_element_key(els, "bookmark") == "bookmark this tab"
+    assert rm.match_element_key(els, "save") == "save"
+    assert rm.match_element_key({"ok": 1}, "bookmark") is None
+
+    # Drag coordinates with a bare "->" stay one step
+    steps = dd.parse_action_string("drag:10,10->200,200 | key:enter")
+    assert [st["raw"] for st in steps] == ["drag:10,10->200,200", "key:enter"]
+
+    # Per-app storage round-trip, change-only writes and deletion
+    with tempfile.TemporaryDirectory() as tmp:
+        from pathlib import Path
+        d = Path(tmp) / "ui_roadmap"
+        r = rm.UIRoadmap(directory=d, legacy_file=None)
+        r.map["Admin: Prompt"] = {"elements": {"x": {"name": "X"}}}
+        r.map["taskbar"] = {"elements": {}}
+        r.map["Taskbar"] = {"elements": {}}
+        r.save()
+        names = sorted(f.name for f in d.glob("*.json"))
+        assert "admin-prompt.json" in names and "taskbar.json" in names and len(names) == 3
+        r2 = rm.UIRoadmap(directory=d, legacy_file=None)
+        assert r2.map == r.map
+        del r2.map["Admin: Prompt"]
+        r2.save()
+        assert not (d / "admin-prompt.json").exists()
+
+        # Two instances = two processes sharing the directory
+        rect = {"left": 0, "top": 0, "right": 100, "bottom": 100}
+        el = lambda n: {"name": n, "center_x": 5, "center_y": 5, "rect": {"width": 4, "height": 4}}  # noqa: E731
+        a = rm.UIRoadmap(directory=d, legacy_file=None)
+        b = rm.UIRoadmap(directory=d, legacy_file=None)
+        a.learn_window("Weird App", [el("from a")], rect)
+        b.learn_window("Weird App", [el("from b")], rect)  # b never saw a's write; must merge, not clobber
+        a.refresh_app("Weird App")
+        assert {"from a", "from b"} <= set(a.map["Weird App"]["elements"])
+        assert a.remove_element("Weird App", "from a")
+        b.learn_window("Weird App", [el("from b 2")], rect)  # stale b still holds "from a"
+        final = rm.UIRoadmap(directory=d, legacy_file=None).map["Weird App"]["elements"]
+        assert "from a" not in final and {"from b", "from b 2"} <= set(final)
+    print(" -> Review regressions verified")
+
+
+def test_module_layering():
+    """Each module may only import deskdriver modules from its own layer or below."""
+    import ast
+    print("Testing module layering (paths/core -> automation -> navigation -> workflows)...")
+    ranks = {"paths": 0, "core": 1, "sync": 1, "automation": 2, "navigation": 3, "workflows": 4, "server": 5}
+    pkg = src_path / "deskdriver"
+
+    def layer_of(dotted: str):
+        parts = dotted.split(".")
+        return ranks.get(parts[1]) if len(parts) > 1 and parts[0] == "deskdriver" else None
+
+    violations = []
+    for f in pkg.rglob("*.py"):
+        rel = f.relative_to(src_path).with_suffix("")
+        mod = ".".join(rel.parts)
+        if mod == "deskdriver.__init__":
+            continue  # the package facade re-exports every layer
+        own = layer_of(mod)
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            for name in names:
+                dep = layer_of(name)
+                if own is not None and dep is not None and dep > own:
+                    violations.append(f"{mod} -> {name}")
+    assert not violations, "Layering violations: " + ", ".join(violations)
+    print(" -> No upward imports")
+
+
+def test_real_data_untouched():
+    print("Testing that the real roadmap / history / actions were not modified...")
+    assert _real_data_fingerprint() == REAL_DATA_BEFORE, "tests wrote to the real data files"
+    print(f" -> Real data untouched (tests used {TEST_DATA_DIR})")
+
+
 def run_all():
     test_shim_parity()
     test_core_mouse()
@@ -367,6 +501,9 @@ def run_all():
     test_action_pipeline()
     test_application_tree()
     test_session_recorder()
+    test_review_regressions()
+    test_module_layering()
+    test_real_data_untouched()
     print("\nALL DESKDRIVER TESTS PASSED!")
 
 

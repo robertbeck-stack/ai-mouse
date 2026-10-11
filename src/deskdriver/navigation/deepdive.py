@@ -8,11 +8,10 @@ toolbar button, input, tab, toggle, tooltip, and keyboard accelerator.
 import ctypes
 from ctypes import wintypes
 import time
-import re
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.automation.windows import list_windows, focus_window, user32
 from deskdriver.automation.uia import is_interactive_control, get_element_name
-from deskdriver.navigation.hotkeys import extract_shortcut_from_name
+from deskdriver.core.shortcuts import extract_shortcut_from_name
 from deskdriver.navigation.roadmap import roadmap
 from deskdriver.navigation.history import record_scan_log
 import uiautomation as auto
@@ -94,11 +93,48 @@ KNOWN_CANVAS_CLASSES = {
 }
 
 
-def detect_canvas_game_surface(class_name: str, discovered_count: int, width: int, height: int) -> dict:
-    """Detect whether a window is a hardware-accelerated GPU canvas, game, or non-UIA surface."""
+# Top-level frame classes of UI frameworks that always expose a real UIA tree.
+# A sparse scan of these means the walk was cut short (still loading, capped,
+# cross-process UWP content), never that the window is a GPU canvas.
+KNOWN_UIA_HOST_CLASSES = {
+    "applicationframewindow",        # UWP host (Settings, Calculator, Store)
+    "windows.ui.core.corewindow",
+    "winuidesktopwin32windowclass",  # WinUI 3
+    "chrome_widgetwin_1",            # Chromium / Electron (Brave, Chrome, Edge, VS Code)
+    "mozillawindowclass",
+    "cabinetwclass",                 # File Explorer
+    "notepad",
+    "#32770",                        # Win32 dialog
+    "shell_traywnd",
+    "consolewindowclass",
+    "cascadia_hosting_window_class", # Windows Terminal
+}
+
+
+def detect_canvas_game_surface(
+    class_name: str,
+    discovered_count: int,
+    width: int,
+    height: int,
+    known_count: int = 0,
+    truncated: bool = False,
+) -> dict:
+    """Detect whether a window is a hardware-accelerated GPU canvas, game, or non-UIA surface.
+
+    known_count is the number of real controls already cached for the app; truncated
+    means the walk hit max_elements. Either one rules out the sparse-tree heuristic.
+    """
     cn = (class_name or "").lower()
     engine_name = KNOWN_CANVAS_CLASSES.get(cn, "")
-    is_canvas = bool(engine_name) or (discovered_count <= 4 and width >= 400 and height >= 300)
+    sparse_tree = (
+        discovered_count <= 4
+        and known_count <= 4
+        and not truncated
+        and cn not in KNOWN_UIA_HOST_CLASSES
+        and width >= 400
+        and height >= 300
+    )
+    is_canvas = bool(engine_name) or sparse_tree
 
     if is_canvas and not engine_name:
         engine_name = "Custom GPU Surface / Game Canvas"
@@ -203,18 +239,25 @@ def deep_dive_app(
     window_search: str = "",
     max_depth: int = 25,
     max_elements: int = 1000,
+    hwnd: int | None = None,
+    background: bool = False,
 ) -> dict:
     """
     Supercharged Deep Dive Engine:
     Exhaustively indexes every menu hierarchy, toolbar, input field, tab, toggle,
     value, tooltip, and keyboard accelerator into persistent roadmap memory without cursor disruption.
+
+    hwnd targets an exact window instead of searching titles. background=True is for
+    scans the user did not ask for (session recorder): no focus change, no beep.
     """
     ensure_desktop()
     t0 = time.perf_counter()
 
     wins = list_windows()
     target_win = None
-    if window_search:
+    if hwnd is not None:
+        target_win = next((w for w in wins if w["hwnd"] == hwnd), None)
+    elif window_search:
         q = window_search.lower()
         for w in wins:
             if q in w["title"].lower():
@@ -236,9 +279,11 @@ def deep_dive_app(
     title = target_win["title"]
     win_rect = target_win["rect"]
     app_key = roadmap.get_app_key(title)
+    roadmap.refresh_app(app_key)
 
-    focus_window(hwnd)
-    time.sleep(0.12)
+    if not background:
+        focus_window(hwnd)
+        time.sleep(0.12)
 
     # 1. Process Specs
     specs = get_window_process_specs(hwnd)
@@ -327,10 +372,25 @@ def deep_dive_app(
     # 4. Canvas / Game Engine Detection
     win_w = max(1, win_rect.get("right", 0) - win_rect.get("left", 0))
     win_h = max(1, win_rect.get("bottom", 0) - win_rect.get("top", 0))
-    canvas_info = detect_canvas_game_surface(specs["class_name"], len(all_discovered), win_w, win_h)
+    cached_elements = roadmap.map.get(app_key, {}).get("elements", {})
+    known_count = sum(1 for e in cached_elements.values() if e.get("control_type") != "SpatialAnchor")
+    canvas_info = detect_canvas_game_surface(
+        specs["class_name"],
+        len(all_discovered),
+        win_w,
+        win_h,
+        known_count=known_count,
+        truncated=len(all_discovered) >= max_elements,
+    )
     specs["is_canvas_game"] = canvas_info["is_canvas_game"]
     specs["engine"] = canvas_info["engine"]
     specs["canvas_advice"] = canvas_info["advice"]
+
+    if not canvas_info["is_canvas_game"]:
+        # Drop a fallback anchor left behind by an earlier false-positive detection.
+        stale = cached_elements.get("canvas center / play")
+        if stale and stale.get("control_type") == "SpatialAnchor":
+            roadmap.remove_element(app_key, "canvas center / play")
 
     if canvas_info["is_canvas_game"]:
         cx = win_rect.get("left", 0) + win_w // 2
@@ -409,12 +469,10 @@ def deep_dive_app(
         process_info=specs,
         categories={k: len(v) for k, v in categories.items()},
     )
-    roadmap.save()
 
     duration = round(time.perf_counter() - t0, 2)
 
     # 7. Record into unified scan history
-    active_cats = [f"{k}: {len(v)}" for k, v in categories.items() if len(v) > 0 and k != "shortcuts"]
     summary = f"Deep Dive indexed {len(all_discovered)} controls ({len(categories['shortcuts'])} shortcuts, {specs['exe_name'] or 'win32'}, PID: {specs['pid']})"
     if len(new_elements) > 0:
         summary = f"Deep Dive indexed {len(all_discovered)} controls (✨ {len(new_elements)} newly discovered, {specs['exe_name']}, PID: {specs['pid']})"
@@ -433,7 +491,8 @@ def deep_dive_app(
     )
 
     try:
-        winsound.MessageBeep(0)
+        if not background:
+            winsound.MessageBeep(0)
     except Exception:
         pass
 

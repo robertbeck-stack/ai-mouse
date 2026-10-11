@@ -56,7 +56,7 @@ Dispatches inputs directly into the Windows kernel event queue using verified 40
 - Native Per-Monitor v2 DPI Awareness (`SetProcessDpiAwarenessContext(-4)`).
 
 ### 2. Spatial Roadmap & Responsive Anchoring
-Learns application UI structures and serializes them to `ui_roadmap.json`.
+Learns application UI structures and serializes them to `ui_roadmap/` — one JSON file per application (e.g. `ui_roadmap/notepad.json`). An existing monolithic `ui_roadmap.json` is split automatically on first load.
 - **$O(1)$ coordinate resolution:** Resolves target buttons in under 1 ms without re-querying the accessibility tree.
 - **Responsive Anchors:** Automatically anchors controls to `top-left`, `top-right`, or `bottom-right`. When a window is resized, button coordinates dynamically adjust without re-scanning.
 
@@ -145,7 +145,7 @@ Add the following to your MCP settings file (e.g. `%APPDATA%\Claude\claude_deskt
 | `type_text` | `text`, `enter=False` | Types clean Unicode text into the active control via `SendInput`. |
 | `open_fastpath` | `target` (e.g. `system`, `sound`, `calc`) | Instantly opens Windows settings or tools via URI protocols (0 ms). |
 | `fill_input` | `element_name`, `text`, `press_enter=True` | Clicks an input field, clears existing content (`Ctrl+A` -> `Backspace`), and types the new text. |
-| `system_prelearn` | `max_elements_per_app=150` | Scans all open windows and caches their interactive controls into `ui_roadmap.json`. |
+| `system_prelearn` | `max_elements_per_app=150` | Scans all open windows and caches their interactive controls into `ui_roadmap/`. |
 | `get_roadmap_stats` | *none* | Returns cached application summaries and indexed controls. |
 | `get_mouse_position` | *none* | Returns current screen coordinates `(x, y)`. |
 | `move_mouse` | `x`, `y`, `smooth=True`, `duration=0.25` | Moves the cursor using human Bézier trajectory. |
@@ -210,30 +210,44 @@ am.move_mouse(100, 100)
 
 ## 🗺️ Project Architecture
 
+Layers only depend downward (`paths`/`core` → `automation` → `navigation` → `workflows`);
+`tests/test_deskdriver.py` enforces this.
+
 ```text
 deskdriver/
 ├── src/
 │   ├── deskdriver/                # Primary package
+│   │   ├── paths.py               # Data file locations (override with DESKDRIVER_DATA_DIR)
 │   │   ├── core/                  # Low-level Win32 integration
 │   │   │   ├── desktop.py         # Thread desktops, DPI awareness context
 │   │   │   ├── keyboard.py        # 40-byte atomic SendInput, hotkeys
-│   │   │   └── mouse.py           # Bézier movement, clicks, scrolls, drags
-│   │   ├── automation/            # Windows UI Automation (UIA)
+│   │   │   ├── mouse.py           # Bézier movement, clicks, scrolls, drags
+│   │   │   ├── clipboard.py       # Native Win32 clipboard
+│   │   │   └── shortcuts.py       # Accelerator extraction from UI text
+│   │   ├── automation/            # Windows UI Automation (UIA), read-only
 │   │   │   ├── windows.py         # Window enumeration & foreground focus
-│   │   │   └── uia.py             # COM element inspection & clickables
+│   │   │   └── uia.py             # COM element inspection & clickable scans
 │   │   ├── navigation/            # Spatial navigation & caching
-│   │   │   ├── fastpaths.py       # OS URI handlers (ms-settings, calc)
-│   │   │   ├── hotkeys.py         # Accelerator extraction from UI text
+│   │   │   ├── roadmap.py         # Per-app roadmap store (ui_roadmap/*.json)
+│   │   │   ├── interact.py        # Click / fill / wait for named elements
+│   │   │   ├── deepdive.py        # Exhaustive app indexing & canvas detection
 │   │   │   ├── prelearn.py        # Batch scanner for open applications
-│   │   │   └── roadmap.py         # O(1) cache with responsive anchors
+│   │   │   ├── tree.py            # Application hierarchy trees
+│   │   │   ├── fastpaths.py       # OS URI handlers (ms-settings, calc)
+│   │   │   ├── hotkeys.py         # Built-in app hotkey profiles
+│   │   │   └── history.py         # Scan history log
+│   │   ├── workflows/             # Multi-step automation on top of navigation
+│   │   │   ├── actions.py         # Action pipelines ("open:notepad | type:Hi")
+│   │   │   └── recorder.py        # Live session recorder
 │   │   ├── sync/                  # Cloud sync & community sharing
 │   │   │   ├── sanitizer.py       # PII & path scrubbing
 │   │   │   └── client.py          # Community roadmap client
-│   │   └── server.py              # FastMCP Server implementation
+│   │   └── server.py              # MCP Server implementation
 │   └── ai_mouse/                  # Backward compatibility shim
 │       └── __init__.py            # Re-exports deskdriver
 ├── tests/
-│   └── test_deskdriver.py         # Self-check verification test suite
+│   └── test_deskdriver.py         # Self-check suite (runs on a temp copy of the data)
+├── ui_roadmap/                    # Learned app profiles, one JSON per app (not in git)
 ├── dashboard.py                   # Wikipedia-style UI-Pedia web interface
 ├── demo.py                        # Terminal interactive demo
 ├── pyproject.toml                 # Packaging configuration (v0.2.0)

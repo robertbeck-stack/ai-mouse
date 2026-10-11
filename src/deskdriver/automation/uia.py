@@ -5,6 +5,7 @@ UI Automation element detection, cursor inspection, and interactive control scan
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.core.mouse import get_mouse_position
 from deskdriver.automation.windows import list_windows, user32
+from deskdriver.core.shortcuts import extract_shortcut_from_name
 import uiautomation as auto
 
 # Comprehensive set of interactive control types across Windows & web apps
@@ -123,10 +124,11 @@ def get_element_at(x: int, y: int) -> dict:
 inspect_at = get_element_at
 
 
-def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
+def scan_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> tuple[list[dict], dict | None]:
     """
-    Find clickable interactive elements in the active window or target window.
-    Deep traversal with high coverage for web browsers, settings, and desktop apps.
+    Find clickable interactive elements in the target window (or the foreground window).
+    Returns (elements, window) where window is {"title", "rect"} of the scanned top-level
+    window, or None if nothing could be scanned. Read-only: nothing is persisted.
     """
     ensure_desktop()
 
@@ -144,7 +146,7 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
         target_ctrl = auto.ControlFromHandle(fg_hwnd)
 
     if not target_ctrl:
-        return []
+        return [], None
 
     elements = []
 
@@ -161,8 +163,6 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
                     cx = (rect.left + rect.right) // 2
                     cy = (rect.top + rect.bottom) // 2
                     sc = getattr(child, "AcceleratorKey", "") or getattr(child, "AccessKey", "")
-                    
-                    from deskdriver.navigation.hotkeys import extract_shortcut_from_name
                     clean_name, final_shortcut = extract_shortcut_from_name(raw_name, fallback_shortcut=sc.strip() if sc else "")
 
                     elements.append({
@@ -186,23 +186,20 @@ def list_clickable_elements(window_search: str | None = None, max_elements: int 
 
     walk(target_ctrl)
 
-
-    # Automatically learn discovered elements into the roadmap
+    window = None
     try:
-        from deskdriver.navigation.roadmap import roadmap
         top_win = target_ctrl.GetTopLevelControl() or target_ctrl
         w_rect = top_win.BoundingRectangle
-        roadmap.learn_window(
-            window_title=top_win.Name or "unknown",
-            elements=elements,
-            window_rect={
-                "left": w_rect.left,
-                "top": w_rect.top,
-                "right": w_rect.right,
-                "bottom": w_rect.bottom,
-            },
-        )
+        window = {
+            "title": top_win.Name or "unknown",
+            "rect": {"left": w_rect.left, "top": w_rect.top, "right": w_rect.right, "bottom": w_rect.bottom},
+        }
     except Exception:
         pass
 
-    return elements
+    return elements, window
+
+
+def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
+    """Read-only element scan. deskdriver.list_clickable_elements additionally learns the results."""
+    return scan_clickable_elements(window_search, max_elements)[0]

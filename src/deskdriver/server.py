@@ -186,7 +186,7 @@ def get_roadmap_stats() -> dict:
 def system_prelearn(max_elements_per_app: int = 50) -> dict:
     """
     Scan all open windows and the Windows Taskbar to discover and index interactive controls
-    into ui_roadmap.json upfront so the AI has pre-learned desktop knowledge.
+    into ui_roadmap/ upfront so the AI has pre-learned desktop knowledge.
     """
     return am.run_system_prelearn(max_elements_per_app=max_elements_per_app)
 
@@ -242,7 +242,7 @@ def clipboard_get() -> dict:
 def record_current_element(custom_name: str = "") -> dict:
     """
     Record on Hover: inspects the element currently under the mouse cursor
-    and persists it into the spatial roadmap cache (ui_roadmap.json) with responsive anchors.
+    and persists it into the spatial roadmap cache (ui_roadmap/) with responsive anchors.
     """
     return am.record_element_at_cursor(custom_name=custom_name)
 
@@ -251,7 +251,7 @@ def record_current_element(custom_name: str = "") -> dict:
 def auto_record_window(window_search: str = "", move_cursor: bool = True, max_elements: int = 150) -> dict:
     """
     Automatically discovers controls in a window, glides the mouse cursor over each
-    one with human-like Bézier motion to visually verify, and persists coordinates into ui_roadmap.json.
+    one with human-like Bézier motion to visually verify, and persists coordinates into ui_roadmap/.
     """
     return am.auto_record_window(window_search=window_search, move_cursor=move_cursor, max_elements=max_elements)
 
@@ -260,7 +260,7 @@ def auto_record_window(window_search: str = "", move_cursor: bool = True, max_el
 def deep_dive_app(window_search: str = "", max_depth: int = 15, max_elements: int = 500) -> dict:
     """
     Exhaustive Deep Dive: Inspects every menu command (legacy Win32 and modern),
-    toolbar, input field, and accelerator in an application, indexing all into ui_roadmap.json.
+    toolbar, input field, and accelerator in an application, indexing all into ui_roadmap/.
     """
     return am.deep_dive_app(window_search=window_search, max_depth=max_depth, max_elements=max_elements)
 

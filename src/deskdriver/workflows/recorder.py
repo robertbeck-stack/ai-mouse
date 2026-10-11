@@ -7,21 +7,29 @@ Produces serialized Action Pipeline strings ready for immediate zero-token repla
 
 import ctypes
 from ctypes import wintypes
+import queue
 import threading
 import time
 from typing import Any
 
 from deskdriver.core.desktop import ensure_desktop
-from deskdriver.automation.windows import user32, list_windows
+from deskdriver.automation.windows import user32
 from deskdriver.automation.uia import get_element_at
 from deskdriver.navigation.roadmap import roadmap
 from deskdriver.navigation.history import record_scan_log
+from deskdriver.navigation.deepdive import deep_dive_app
+
+SCAN_MAX_ELEMENTS = 250
 
 
 class SessionRecorder:
     def __init__(self):
         self._is_recording = False
         self._thread: threading.Thread | None = None
+        self._scan_thread: threading.Thread | None = None
+        # Newly visited windows to index. Scans take seconds, so they run on their own
+        # thread; scanning inline in the monitor loop missed every click meanwhile.
+        self._scan_queue: queue.Queue = queue.Queue()
         self._start_time = 0.0
         self._stop_time = 0.0
         self._actions: list[dict[str, Any]] = []
@@ -51,8 +59,13 @@ class SessionRecorder:
             self._visited_apps = []
             self._new_controls_count = 0
 
+            self._scan_queue = queue.Queue()
             self._thread = threading.Thread(target=self._monitor_loop, daemon=True, name="DeskDriverSessionRecorder")
+            self._scan_thread = threading.Thread(
+                target=self._scan_loop, args=(self._scan_queue,), daemon=True, name="DeskDriverRecorderScanner"
+            )
             self._thread.start()
+            self._scan_thread.start()
 
             return {
                 "status": "recording_started",
@@ -86,6 +99,10 @@ class SessionRecorder:
 
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.5)
+        # Queued scans run before the stop sentinel; wait a bounded time so their new controls are counted.
+        self._scan_queue.put(None)
+        if self._scan_thread and self._scan_thread.is_alive():
+            self._scan_thread.join(timeout=5.0)
 
         elapsed = round(self._stop_time - self._start_time, 2)
 
@@ -159,13 +176,12 @@ class SessionRecorder:
                     lt = title.lower()
                     if title and "dashboard" not in lt and "antigravity" not in lt:
                         app_key = roadmap.get_app_key(title)
-                        if app_key not in self._visited_apps:
-                            self._visited_apps.append(app_key)
-                            # Background learn window controls
-                            from deskdriver.navigation.deepdive import deep_dive_app
-                            scan_res = deep_dive_app(window_search=title, max_elements=250)
-                            if isinstance(scan_res, dict):
-                                self._new_controls_count += scan_res.get("new_count", 0)
+                        with self._lock:
+                            first_visit = app_key not in self._visited_apps
+                            if first_visit:
+                                self._visited_apps.append(app_key)
+                        if first_visit:
+                            self._scan_queue.put(int(curr_hwnd))
 
                         elapsed = round(time.time() - self._start_time, 2)
                         with self._lock:
@@ -216,6 +232,22 @@ class SessionRecorder:
                 pass
 
             time.sleep(0.04)
+
+
+    def _scan_loop(self, scan_queue: queue.Queue):
+        """Worker thread: index each newly visited window without touching focus or the cursor."""
+        ensure_desktop()
+        while True:
+            hwnd = scan_queue.get()
+            if hwnd is None:
+                break
+            try:
+                scan_res = deep_dive_app(hwnd=hwnd, max_elements=SCAN_MAX_ELEMENTS, background=True)
+                if isinstance(scan_res, dict):
+                    with self._lock:
+                        self._new_controls_count += scan_res.get("new_count", 0)
+            except Exception:
+                pass
 
 
 recorder = SessionRecorder()

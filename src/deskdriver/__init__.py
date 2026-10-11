@@ -30,21 +30,21 @@ from deskdriver.automation.windows import (
 from deskdriver.automation.uia import (
     get_element_under_cursor,
     get_element_at,
-    list_clickable_elements,
 )
-from deskdriver.navigation.roadmap import (
+from deskdriver.navigation.roadmap import roadmap
+from deskdriver.navigation.interact import (
+    list_clickable_elements,  # scans and learns into the roadmap
     fast_click_element,
     fill_input,
     record_element_at_cursor,
     auto_record_window,
     wait_for_element,
     wait_and_click,
-    roadmap,
 )
 from deskdriver.navigation.deepdive import deep_dive_app
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.prelearn import run_system_prelearn
-from deskdriver.automation.actions import (
+from deskdriver.workflows.actions import (
     execute_action,
     save_action,
     load_saved_actions,
@@ -52,7 +52,7 @@ from deskdriver.automation.actions import (
     parse_action_string,
 )
 from deskdriver.navigation.tree import build_application_tree
-from deskdriver.automation.recorder import (
+from deskdriver.workflows.recorder import (
     start_recording,
     stop_recording,
     get_recording_status,

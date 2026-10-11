@@ -867,7 +867,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <h2 class="wiki-h2">Indexed Applications Encyclopedia</h2>
-                <p style="color: var(--text-muted); margin-bottom: 16px;">Browse encyclopedic roadmap profiles for all desktop applications currently learned into <code>ui_roadmap.json</code>:</p>
+                <p style="color: var(--text-muted); margin-bottom: 16px;">Browse encyclopedic roadmap profiles for all desktop applications currently learned into <code>ui_roadmap/</code> (one file per app):</p>
                 <div class="encyclopedia-grid">
                     ${appsCardsHtml}
                 </div>
@@ -998,7 +998,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <tr><th>Indexed Controls</th><td><strong>${elements.length}</strong> items</td></tr>
                         <tr><th>Shortcuts</th><td><strong>${hotkeyElements.length}</strong> hotkeys</td></tr>
                         <tr><th>Positioning</th><td>Relative + Anchors</td></tr>
-                        <tr><th>Cache Storage</th><td><code>ui_roadmap.json</code></td></tr>
+                        <tr><th>Cache Storage</th><td><code>${(fullData.storage_files || {})[appKey] || 'ui_roadmap/'}</code></td></tr>
                     </table>
                 </div>
 
@@ -1219,7 +1219,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <div class="hatnote">
-                    Chronological record of automated spatial tours, deep dives, and cursor captures recorded into <code>ui_roadmap.json</code>.
+                    Chronological record of automated spatial tours, deep dives, and cursor captures recorded into <code>ui_roadmap/</code>.
                 </div>
 
                 <div id="historyTableContainer">
@@ -1888,7 +1888,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">New Controls</span><div style="font-size:17px; font-weight:bold; color:#d33;">✨ ${data.new_controls_count || 0}</div></div>
                 </div>
                 <p style="margin-bottom:6px;"><strong>Apps Traverse Path:</strong> <code>${appsList}</code></p>
-                <p style="color:var(--text-muted); font-size:12.5px;">All newly discovered controls from this session have been automatically indexed into <code>ui_roadmap.json</code> and logged into <strong>📜 Scan History</strong>.</p>
+                <p style="color:var(--text-muted); font-size:12.5px;">All newly discovered controls from this session have been automatically indexed into <code>ui_roadmap/</code> and logged into <strong>📜 Scan History</strong>.</p>
             `;
 
             modal.style.display = 'flex';
@@ -1948,28 +1948,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 """
 
 
-LOG_FILE = Path(__file__).parent / "scan_history.json"
-
-
-def load_scan_logs():
-    if LOG_FILE.exists():
-        try:
-            with open(LOG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-
-def save_scan_logs(logs):
-    try:
-        with open(LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(logs[:150], f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
-
-
-from deskdriver.navigation.history import load_scan_logs, save_scan_logs, record_scan_log
+from deskdriver.navigation.history import load_scan_logs, record_scan_log
 
 
 def add_scan_log(
@@ -1999,7 +1978,29 @@ def add_scan_log(
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    def _is_trusted_request(self) -> bool:
+        """
+        Only serve the dashboard's own page. The API types text, launches programs and runs
+        pipelines, so a web page in the browser must not be able to call it:
+        - Host must be localhost / 127.0.0.1 on our port (blocks DNS-rebinding).
+        - Origin, when a browser sends one, must be that same host (blocks cross-site POSTs).
+        """
+        port = self.server.server_address[1]
+        allowed_hosts = {f"localhost:{port}", f"127.0.0.1:{port}"}
+        if self.headers.get("Host", "") not in allowed_hosts:
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin in {f"http://{h}" for h in allowed_hosts}
+
+    def _reject(self):
+        self.send_response(403)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Forbidden: cross-origin requests are not allowed")
+
     def do_GET(self):
+        if not self._is_trusted_request():
+            return self._reject()
         clean_path = self.path.split("?")[0].rstrip("/")
         if clean_path in ("", "/index.html"):
             self.send_response(200)
@@ -2009,7 +2010,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/stats":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             roadmap_data = am.roadmap.reload()
@@ -2024,6 +2024,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "common_hotkeys": COMMON_HOTKEYS,
                 "fastpaths": FASTPATHS,
                 "roadmap": roadmap_data,
+                "storage_files": {k: f"ui_roadmap/{am.roadmap.app_file(k).name}" for k in roadmap_data},
                 "timestamp": datetime.now().isoformat(),
                 "last_scan": current_logs[0] if current_logs else None,
                 "total_scans": len(current_logs),
@@ -2032,13 +2033,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/actions":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"actions": am.load_saved_actions()}, ensure_ascii=False).encode("utf-8"))
         elif clean_path == "/api/app_tree":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             query = ""
@@ -2052,7 +2051,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/logs":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             current_logs = load_scan_logs()
@@ -2069,7 +2067,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/record/status":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(
                 json.dumps(am.get_recording_status(), ensure_ascii=False).encode("utf-8")
@@ -2079,6 +2076,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if not self._is_trusted_request():
+            return self._reject()
         clean_path = self.path.split("?")[0].rstrip("/")
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
@@ -2090,7 +2089,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if clean_path == "/api/prelearn":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             res = am.run_system_prelearn()
@@ -2125,7 +2123,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/hotkey":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             hk = req_data.get("hotkey", "")
@@ -2136,7 +2133,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/type":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             text = req_data.get("text", "")
@@ -2148,7 +2144,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/fastpath":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             target = req_data.get("target", "")
@@ -2158,7 +2153,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/record_cursor":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             res = am.record_element_at_cursor(custom_name=req_data.get("name", ""))
@@ -2175,7 +2169,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path in ("/api/auto_record", "/api/deepdive"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             win = req_data.get("window", "")
@@ -2185,7 +2178,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/snap_window":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             win = req_data.get("window", "")
@@ -2196,7 +2188,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/paste":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             text = req_data.get("text", "")
@@ -2206,7 +2197,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/run_action":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             act_str = req_data.get("action", "")
@@ -2230,7 +2220,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/save_action":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             name = req_data.get("name", "")
@@ -2241,7 +2230,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/delete_action":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
 
             name = req_data.get("name", "")
@@ -2249,7 +2237,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/record/start":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             res = am.start_recording()
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
@@ -2257,7 +2244,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif clean_path == "/api/record/stop":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             res = am.stop_recording()
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
