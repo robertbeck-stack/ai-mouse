@@ -109,7 +109,31 @@ KNOWN_UIA_HOST_CLASSES = {
     "shell_traywnd",
     "consolewindowclass",
     "cascadia_hosting_window_class", # Windows Terminal
+    "mspaintapp",                    # Paint (WinUI content island)
 }
+
+# Child window classes that host XAML / WinUI content. Their UIA tree can be empty
+# while the window is behind others or still loading, which must not read as a canvas.
+XAML_CONTENT_CHILD_CLASSES = {
+    "microsoft.ui.content.desktopchildsitebridge",       # WinUI 3
+    "windows.ui.composition.desktopwindowcontentbridge",  # UWP XAML islands
+}
+
+
+def hosts_xaml_content(hwnd: int) -> bool:
+    """Does the window contain a XAML / WinUI content island?"""
+    found = []
+    buf = ctypes.create_unicode_buffer(256)
+
+    def cb(child, _):
+        user32.GetClassNameW(child, buf, 256)
+        if buf.value.lower() in XAML_CONTENT_CHILD_CLASSES:
+            found.append(child)
+            return False
+        return True
+
+    user32.EnumChildWindows(wintypes.HWND(hwnd), ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(cb), 0)
+    return bool(found)
 
 
 def detect_canvas_game_surface(
@@ -119,11 +143,13 @@ def detect_canvas_game_surface(
     height: int,
     known_count: int = 0,
     truncated: bool = False,
+    xaml_host: bool = False,
 ) -> dict:
     """Detect whether a window is a hardware-accelerated GPU canvas, game, or non-UIA surface.
 
     known_count is the number of real controls already cached for the app; truncated
-    means the walk hit max_elements. Either one rules out the sparse-tree heuristic.
+    means the walk hit max_elements; xaml_host means the window embeds XAML / WinUI
+    content (hosts_xaml_content). Any of them rules out the sparse-tree heuristic.
     """
     cn = (class_name or "").lower()
     engine_name = KNOWN_CANVAS_CLASSES.get(cn, "")
@@ -131,6 +157,7 @@ def detect_canvas_game_surface(
         discovered_count <= 4
         and known_count <= 4
         and not truncated
+        and not xaml_host
         and cn not in KNOWN_UIA_HOST_CLASSES
         and width >= 400
         and height >= 300
@@ -383,6 +410,7 @@ def deep_dive_app(
         win_h,
         known_count=known_count,
         truncated=len(all_discovered) >= max_elements,
+        xaml_host=hosts_xaml_content(target_win["hwnd"]),
     )
     specs["is_canvas_game"] = canvas_info["is_canvas_game"]
     specs["engine"] = canvas_info["engine"]

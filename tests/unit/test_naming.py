@@ -63,6 +63,16 @@ def test_normalize_name_uses_window_relative_position_for_unnamed_controls():
     assert normalize_name("Media Alt+M", 0, 0) == ("Media", "Alt+M")
 
 
+def test_canvas_detection():
+    from deskdriver.navigation.deepdive import detect_canvas_game_surface as detect
+    assert detect("UnityWndClass", 50, 1200, 800)["is_canvas_game"]          # known engine
+    assert detect("MyEngineWnd", 1, 1200, 800)["is_canvas_game"]             # unknown class, no UIA tree
+    assert not detect("MyEngineWnd", 1, 1200, 800, xaml_host=True)["is_canvas_game"]  # WinUI island not loaded
+    assert not detect("MSPaintApp", 1, 1200, 800)["is_canvas_game"]
+    assert not detect("ApplicationFrameWindow", 2, 1200, 800)["is_canvas_game"]
+    assert not detect("MyEngineWnd", 5, 1200, 800, truncated=True)["is_canvas_game"]
+
+
 def test_prefer_shortcut():
     assert prefer_shortcut("Ctrl+B", "Alt, B") == "Ctrl+B"   # access key loses to accelerator
     assert prefer_shortcut("Ctrl+B", "") == "Ctrl+B"
