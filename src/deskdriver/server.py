@@ -74,6 +74,36 @@ def drag_and_drop(
 
 
 @server.tool()
+def draw(window_search: str, strokes: list[list[list[int]]]) -> dict:
+    """
+    Draw a whole picture in a window (Paint, whiteboard, canvas) in ONE call.
+    Always prefer this over many drag_and_drop / move_mouse calls: every separate
+    call costs a full round trip, so send all lines of the drawing at once.
+
+    window_search: the app, e.g. "mspaint" or "Paint".
+    strokes: list of polylines; each polyline is a list of [x, y] points relative to
+      the window's client area (0,0 = top-left inside the window). The left button is
+      held while drawing each polyline. Close a shape by repeating its first point;
+      approximate curves with many points (a circle: ~24 points).
+      Example house: [[[300,400],[300,250],[500,250],[500,400],[300,400]],
+                      [[280,250],[400,150],[520,250]], [[380,400],[380,320],[420,320],[420,400]]]
+
+    Call window_geometry first to get the client size and keep points inside it. In
+    Paint, select a tool first (fast_click "Pencil" in "mspaint") and keep points on
+    the white canvas: below the ribbon (roughly y > 180) and inside the image size
+    shown in Paint's status bar; strokes on the grey area around it draw nothing. Stops and reports "interrupted" if the user switches
+    windows or moves the mouse; do not retry without asking the user.
+    """
+    return am.draw_strokes(window_search, strokes)
+
+
+@server.tool()
+def window_geometry(window_search: str) -> dict:
+    """Window and client-area rectangles (screen coordinates) of an app's window, for planning draw() coordinates."""
+    return am.window_geometry(window_search)
+
+
+@server.tool()
 def press_hotkey(hotkey: str) -> dict:
     """
     Press and release a keyboard combination (e.g. 'ctrl+s', 'win+shift+s', 'ctrl+t', 'enter').

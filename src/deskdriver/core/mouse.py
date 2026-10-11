@@ -22,6 +22,25 @@ MOUSEEVENTF_MIDDLEUP = 0x0040
 MOUSEEVENTF_WHEEL = 0x0800
 
 
+MOUSEEVENTF_ABSOLUTE = 0x8000
+MOUSEEVENTF_VIRTUALDESK = 0x4000
+SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 76, 77, 78, 79
+
+
+def send_move(x: int, y: int):
+    """
+    Move the cursor with an injected input event (as a real mouse would), not
+    SetCursorPos. Apps that read pointer input while a button is held (Paint,
+    whiteboards) only see strokes made this way.
+    """
+    vx, vy = user32.GetSystemMetrics(SM_XVIRTUALSCREEN), user32.GetSystemMetrics(SM_YVIRTUALSCREEN)
+    vw = max(2, user32.GetSystemMetrics(SM_CXVIRTUALSCREEN))
+    vh = max(2, user32.GetSystemMetrics(SM_CYVIRTUALSCREEN))
+    nx = round((x - vx) * 65535 / (vw - 1))
+    ny = round((y - vy) * 65535 / (vh - 1))
+    user32.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, nx, ny, 0, 0)
+
+
 def get_mouse_position() -> tuple[int, int]:
     """Get the current screen coordinates (x, y) of the cursor."""
     ensure_desktop()

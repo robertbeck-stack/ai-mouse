@@ -11,7 +11,7 @@ import time
 
 from deskdriver.core.mouse import move_and_click, drag_and_drop
 from deskdriver.core.keyboard import press_hotkey, type_text
-from deskdriver.automation.windows import focus_window, snap_window
+from deskdriver.automation.windows import focus_window, foreground_root, snap_window
 from deskdriver.automation.appid import wait_for_app_window
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.interact import fast_click_element, fill_input, wait_for_element
@@ -24,6 +24,13 @@ DEFAULT_ACTIONS = {
     "open_display_settings": "open:display | wait:0.5",
     "system_info": "open:about | wait:0.5",
     "open_calc": "open:calc | wait:0.5 | type:500*1.24 | key:enter",
+}
+
+
+# Steps that send clicks or keystrokes to whatever window is in front
+INPUT_VERBS = {
+    "click", "tap", "doubleclick", "dblclick", "rightclick", "rclick",
+    "type", "write", "fill", "input", "hotkey", "key", "press", "drag", "draw",
 }
 
 
@@ -128,10 +135,20 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
         return {"error": "No valid action steps found in string"}
 
     results = []
+    # Window the pipeline last opened / focused. Input steps only run while it is
+    # still in front, so a user clicking elsewhere stops the pipeline instead of
+    # having clicks and keystrokes land in the wrong window.
+    target_hwnd = None
+    interrupted = ""
 
     for idx, step in enumerate(steps):
         verb = step["verb"]
         arg = step["arg"]
+
+        if verb in INPUT_VERBS and target_hwnd and foreground_root() != target_hwnd:
+            interrupted = f"step {idx + 1} ({step['raw']}): another window came to the front"
+            results.append({"step": idx + 1, "action": f"stopped before '{step['raw']}'", "status": "interrupted"})
+            break
 
         try:
             if verb in ("open", "launch"):
@@ -145,6 +162,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                 win = wait_for_app_window(arg, timeout=0.3)
                 if win:
                     focus_window(win["hwnd"])
+                    target_hwnd = win["hwnd"]
                     results.append({"step": idx + 1, "action": f"focused existing '{arg}'", "status": "ok"})
                 else:
                     # Launch executable
@@ -154,6 +172,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                         w = wait_for_app_window(arg, timeout=2.5)
                         if w:
                             focus_window(w["hwnd"])
+                            target_hwnd = w["hwnd"]
                         results.append({"step": idx + 1, "action": f"launched '{arg}'", "status": "ok"})
                     except Exception as err:
                         results.append({"step": idx + 1, "action": f"launch '{arg}' failed: {err}", "status": "error"})
@@ -162,6 +181,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                 w = wait_for_app_window(arg, timeout=2.0)
                 if w:
                     focus_window(w["hwnd"])
+                    target_hwnd = w["hwnd"]
                     results.append({"step": idx + 1, "action": f"focused '{arg}'", "status": "ok"})
                 else:
                     results.append({"step": idx + 1, "action": f"window '{arg}' not found", "status": "warning"})
@@ -254,11 +274,14 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
             results.append({"step": idx + 1, "action": f"failed '{step['raw']}': {step_err}", "status": "error"})
 
     duration = round(time.perf_counter() - t0, 2)
-    return {
-        "status": "completed",
+    result = {
+        "status": "interrupted" if interrupted else "completed",
         "action_string": action_str,
         "steps_count": len(steps),
         "steps_executed": len(results),
         "duration_seconds": duration,
         "steps": results,
     }
+    if interrupted:
+        result["reason"] = f"Stopped at {interrupted}. The user may have taken over; ask before continuing."
+    return result

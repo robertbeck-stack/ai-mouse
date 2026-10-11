@@ -281,3 +281,25 @@ def wait_for_window(
     return None
 
 
+
+
+def foreground_root() -> int:
+    """Top-level window that currently has the foreground (0 if none)."""
+    fg = user32.GetForegroundWindow()
+    return int(user32.GetAncestor(fg, 2) or fg or 0)  # GA_ROOT
+
+
+def client_rect(hwnd: int) -> dict:
+    """The window's client area (no title bar / borders) in screen coordinates."""
+    rect = wintypes.RECT()
+    user32.GetClientRect(wintypes.HWND(hwnd), ctypes.byref(rect))
+    origin = wintypes.POINT(0, 0)
+    user32.ClientToScreen(wintypes.HWND(hwnd), ctypes.byref(origin))
+    return {
+        "left": origin.x,
+        "top": origin.y,
+        "right": origin.x + rect.right,
+        "bottom": origin.y + rect.bottom,
+        "width": rect.right,
+        "height": rect.bottom,
+    }

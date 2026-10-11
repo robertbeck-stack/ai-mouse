@@ -241,7 +241,8 @@ deskdriver/
 │   │   ├── automation/            # Windows UI Automation (UIA), read-only
 │   │   │   ├── appid.py           # Which program a window belongs to (exe-based app keys)
 │   │   │   ├── windows.py         # Window enumeration & foreground focus
-│   │   │   └── uia.py             # COM element inspection & clickable scans
+│   │   │   ├── uia.py             # COM element inspection & clickable scans
+│   │   │   └── draw.py            # One-call freehand drawing (stops if the user takes over)
 │   │   ├── navigation/            # Spatial navigation & caching
 │   │   │   ├── roadmap.py         # Per-app roadmap store (ui_roadmap/*.json)
 │   │   │   ├── roadmap_migrate.py # Title-keyed (schema 1) -> exe-keyed (schema 2) migration

@@ -27,6 +27,7 @@ from deskdriver.automation.windows import (
     snap_window,
     wait_for_window,
 )
+from deskdriver.automation.draw import draw_strokes, window_geometry
 from deskdriver.automation.uia import (
     get_element_under_cursor,
     get_element_at,
@@ -88,6 +89,8 @@ __all__ = [
     "move_window",
     "snap_window",
     "wait_for_window",
+    "draw_strokes",
+    "window_geometry",
 
     # UIA Inspection & Roadmap
     "get_element_under_cursor",
