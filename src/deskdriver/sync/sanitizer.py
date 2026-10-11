@@ -28,10 +28,15 @@ COMMUNITY_WHITELIST_TYPES = {
 
 
 def sanitize_app_name(raw_name: str) -> str:
-    """Normalize and clean application identifier."""
-    # Strip trailing file indicators or document names
-    clean = raw_name.split("-")[-1].strip().lower()
-    clean = re.sub(r"[^a-z0-9_\-\s]", "", clean).strip()
+    """
+    Normalize an application identifier. Roadmap keys are executable based
+    ("notepad.exe", "explorer.exe#shell_traywnd", "notepad.exe/page setup"); anything
+    else (old title-based keys) keeps only the part after the last " - ".
+    """
+    clean = raw_name.strip().lower()
+    if not re.match(r"^[a-z0-9_.\-]+\.exe([#/].*)?$", clean):
+        clean = clean.split(" - ")[-1].strip()
+    clean = re.sub(r"[^a-z0-9_.#/\-\s]", "", clean).strip()
     return clean or "unknown_app"
 
 

@@ -11,29 +11,22 @@ import json
 import msvcrt
 import os
 import re
+import shutil
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from deskdriver.automation.appid import AppIdentity
+from deskdriver.navigation.element_filter import is_transient
 from deskdriver.navigation.hotkeys import APP_PROFILES
+from deskdriver.navigation.roadmap_migrate import SCHEMA_VERSION, describe, migrate_entries
 from deskdriver.paths import ROADMAP_DIR, LEGACY_ROADMAP_FILE
 
 
-# Whole-word title patterns, so e.g. "System Restore" is not "Microsoft Store"
-# and "painting.docx - Word" is not Paint.
-APP_KEY_PATTERNS = [
-    (r"\bmicrosoft store\b|^store$", "Microsoft Store"),
-    (r"\bpaint\b", "paint"),
-    (r"\bpolytopia\b", "Polytopia"),
-    (r"\bbrave\b", "brave"),
-    (r"\bchrome\b", "chrome"),
-    (r"^settings\b|\bsettings$", "settings"),
-    (r"\bnotepad\b", "notepad"),
-    (r"\bfile explorer\b|\bconfigs\b", "explorer"),
-]
-
 LOCK_FILE_NAME = ".lock"
+BACKUP_DIR_NAME = "_backup_schema1"
+UNMIGRATED_DIR_NAME = "_unmigrated"
 
 
 def match_element_key(elements: dict, query: str) -> str | None:
@@ -161,6 +154,41 @@ class UIRoadmap:
                 self.map.pop(app_key, None)
                 self._forget(app_key)
 
+            if any(entry.get("schema") != SCHEMA_VERSION for entry in self.map.values()):
+                self._upgrade_schema()
+
+    def _upgrade_schema(self):
+        """
+        Re-key title-based (schema 1) apps by executable. The original files are copied
+        to _backup_schema1/ first; entries that can't be attributed to a program are
+        moved to _unmigrated/ instead of being deleted.
+        """
+        with self._disk_lock():
+            backup = self.directory / BACKUP_DIR_NAME
+            backup.mkdir(exist_ok=True)
+            for name in self._files.values():
+                src = self.directory / name
+                if src.exists() and not (backup / name).exists():
+                    shutil.copy2(src, backup / name)
+
+            migrated, unmigrated = migrate_entries(dict(self.map))
+
+            if unmigrated:
+                parked = self.directory / UNMIGRATED_DIR_NAME
+                parked.mkdir(exist_ok=True)
+                for old_key, data in unmigrated.items():
+                    (parked / f"{app_file_slug(old_key)}.json").write_text(
+                        _serialize(old_key, data), encoding="utf-8"
+                    )
+
+            for old_key, name in list(self._files.items()):
+                (self.directory / name).unlink(missing_ok=True)
+                self._forget(old_key)
+            self.map.clear()
+            self.map.update(migrated)
+            for key in migrated:
+                self._write_app(key)
+
     def _migrate_legacy(self):
         """One-time split of the old monolithic ui_roadmap.json into per-app files."""
         if not self.legacy_file or not self.legacy_file.exists():
@@ -176,6 +204,7 @@ class UIRoadmap:
             self.legacy_file.replace(self.legacy_file.with_name(self.legacy_file.name + ".migrated"))
         except Exception:
             pass
+        self._upgrade_schema()
 
     def _forget(self, app_key: str):
         for d in (self._files, self._written, self._stamps, self._removed):
@@ -294,27 +323,74 @@ class UIRoadmap:
             self.save(app_key)
             return True
 
-    def get_app_key(self, window_title: str) -> str:
-        """Normalize window title to identify application family."""
-        t = window_title.lower()
-        for pattern, key in APP_KEY_PATTERNS:
-            if re.search(pattern, t):
+    def prune_transient(self) -> dict[str, int]:
+        """
+        Drop cached elements that is_transient() rejects (document / browser tabs,
+        web page content, secret-looking names). Returns {app_key: removed count}.
+        """
+        removed: dict[str, int] = {}
+        with self._lock:
+            for app_key, entry in self.map.items():
+                elements = entry.get("elements", {})
+                doomed = [k for k, el in elements.items() if is_transient(el, entry.get("exe", ""))]
+                for k in doomed:
+                    del elements[k]
+                    self._removed.setdefault(app_key, set()).add(k)
+                if doomed:
+                    removed[app_key] = len(doomed)
+                    self.save(app_key)
+        return removed
+
+    def resolve_app_key(self, query: str) -> str | None:
+        """
+        Cached app for a user-facing name: the exact key, the executable with or
+        without ".exe", or the display name ("notepad", "Notepad", "settings").
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        if query in self.map:
+            return query
+        for key, entry in self.map.items():
+            if key.lower() == q:
                 return key
-        return window_title[:30].strip()
+        for key, entry in self.map.items():
+            if entry.get("surface"):
+                continue
+            exe = (entry.get("exe") or "").lower()
+            names = {(entry.get("display_name") or "").lower()}
+            # Only the main window answers to the bare exe name, not
+            # "explorer.exe#shell_traywnd" (the taskbar)
+            if key.lower() == exe:
+                names |= {exe, os.path.splitext(exe)[0]}
+            if q in names:
+                return key
+        return None
 
     def learn_window(
         self,
-        window_title: str,
+        app: AppIdentity | str,
         elements: list[dict],
         window_rect: dict,
         process_info: dict | None = None,
         categories: dict | None = None,
     ):
-        """Cache elements using coordinates relative to the window top-left."""
+        """
+        Cache elements using coordinates relative to the window top-left.
+        `app` is the window's AppIdentity (preferred) or an app key.
+        """
         with self._lock:
-            app_key = self.get_app_key(window_title)
+            app_key = app.key if isinstance(app, AppIdentity) else str(app)
             if app_key not in self.map:
-                self.map[app_key] = {"elements": {}, "last_updated": time.time()}
+                self.map[app_key] = {"elements": {}, "last_updated": time.time(), **describe(app_key)}
+            if isinstance(app, AppIdentity):
+                self.map[app_key].update({
+                    "display_name": app.display_name,
+                    "exe": app.exe,
+                    "window_class": app.window_class,
+                    "surface": app.surface,
+                })
+            self.map[app_key]["schema"] = SCHEMA_VERSION
 
             if process_info:
                 self.map[app_key]["process_info"] = process_info
@@ -326,9 +402,10 @@ class UIRoadmap:
             win_w = max(1, window_rect.get("right", win_left + 800) - win_left)
             win_h = max(1, window_rect.get("bottom", win_top + 600) - win_top)
 
+            exe = self.map[app_key].get("exe", "")
             for el in elements:
                 name = (el.get("name") or "").strip().lower()
-                if not name or name.startswith("("):
+                if not name or name.startswith("(") or is_transient(el, exe):
                     continue
 
                 rel_x = el["center_x"] - win_left
@@ -370,7 +447,8 @@ class UIRoadmap:
                 }
 
             # Merge standard application hotkey profiles if known
-            app_profile = APP_PROFILES.get(app_key, {})
+            # Profiles describe main windows, not dialogs ("notepad.exe/page setup")
+            app_profile = APP_PROFILES.get(app_key, {}) if "/" not in app_key else {}
             for action_name, hk in app_profile.items():
                 matched_key = None
                 for k in self.map[app_key]["elements"]:
@@ -394,9 +472,8 @@ class UIRoadmap:
             self.map[app_key]["last_updated"] = time.time()
             self.save(app_key)
 
-    def find_cached_element(self, window_title: str, element_name: str, window_rect: dict) -> dict | None:
-        """O(1) instant lookup from roadmap memory."""
-        app_key = self.get_app_key(window_title)
+    def find_cached_element(self, app_key: str, element_name: str, window_rect: dict) -> dict | None:
+        """O(1) instant lookup from roadmap memory. window_rect is the app window's current rect."""
         self.refresh_app(app_key)
         app_data = self.map.get(app_key)
         if not app_data:

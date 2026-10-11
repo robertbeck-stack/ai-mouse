@@ -273,9 +273,15 @@ def test_deep_dive():
 
 
 def test_dashboard_scan_logging():
-    print("Testing dashboard scan logging & history tracking...")
+    print("Testing dashboard API, request guards & scan history...")
+    import json as _json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
     import dashboard
-    entry = dashboard.add_scan_log(
+
+    entry = dashboard.record_scan_log(
         action="Deep Dive",
         app="testapp",
         summary="Test deep dive scan",
@@ -286,14 +292,40 @@ def test_dashboard_scan_logging():
         items=["File", "Edit", "Save"],
         duration=0.15,
     )
-    assert entry["action"] == "Deep Dive"
-    assert entry["app"] == "testapp"
-    assert entry["new_count"] == 4
-    assert len(entry["new_items"]) == 4
-    logs = dashboard.load_scan_logs()
-    assert len(logs) > 0
-    assert logs[0]["app"] == "testapp"
-    print(f" -> Dashboard scan logging active (latest: {logs[0]['summary']}, new: {logs[0]['new_count']})")
+    assert entry["action"] == "Deep Dive" and entry["new_count"] == 4
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.DashboardHandler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def call(path, body=None, headers=None):
+        data = _json.dumps(body).encode() if isinstance(body, (dict, list)) else body
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    try:
+        status, raw = call("/api/logs")
+        logs = _json.loads(raw)["logs"]
+        assert status == 200 and logs[0]["app"] == "testapp"
+        assert call("/")[0] == 200
+        assert call("/api/stats")[0] == 200
+        # Guards: cross-site origin and DNS-rebinding host are refused
+        assert call("/api/run_action", {"action": "wait:0"}, {"Origin": "https://evil.example"})[0] == 403
+        assert call("/api/stats", headers={"Host": "evil.example"})[0] == 403
+        # Bad input gives JSON errors instead of a dropped connection
+        assert call("/api/run_action", b"{oops", {"Content-Type": "application/json"})[0] == 400
+        assert call("/api/run_action", {})[0] == 400
+        assert call("/api/nope")[0] == 404
+        status, raw = call("/api/run_action", {"action": "wait:0.01"})
+        assert status == 200 and _json.loads(raw)["status"] == "completed"
+    finally:
+        server.shutdown()
+        server.server_close()
+    print(" -> Dashboard API, guards and scan logging verified")
 
 
 def test_action_pipeline():
@@ -342,7 +374,7 @@ def test_application_tree():
 
     # 2. Notepad Tree
     np_tree = dd.build_application_tree("notepad")
-    assert np_tree["app"] == "notepad"
+    assert np_tree["app"] == "notepad.exe"
     assert np_tree["total_branches"] > 0
     assert len(np_tree["tree"]) > 0
     # Check that Menu Bar exists
@@ -393,10 +425,38 @@ def test_review_regressions():
     assert detect_canvas_game_surface("UnityWndClass", 50, 1200, 800)["is_canvas_game"]
     assert detect_canvas_game_surface("MyEngineWnd", 1, 1200, 800)["is_canvas_game"]
 
-    # App keys use whole words
-    assert dd.roadmap.get_app_key("Untitled - Paint") == "paint"
-    assert dd.roadmap.get_app_key("System Restore") != "Microsoft Store"
-    assert dd.roadmap.get_app_key("painting.docx - Word") != "paint"
+    # App identity is the executable; shared hosts are qualified by window class
+    from deskdriver.automation import appid
+    assert appid.key_for("Notepad.exe", "Notepad") == "notepad.exe"
+    assert appid.key_for("explorer.exe", "CabinetWClass") == "explorer.exe"
+    assert appid.key_for("explorer.exe", "Shell_TrayWnd") == "explorer.exe#shell_traywnd"
+    assert appid.key_for("", "TaskManagerWindow") == "#taskmanagerwindow"
+    assert appid.display_name_for("mspaint.exe") == "Paint"
+    assert appid.surface_name("Page setup") == "page setup"
+    # Every open window resolves to an identity, and an app can be found by name
+    for w in dd.list_windows()[:5]:
+        ident = appid.identify_window(w["hwnd"])
+        assert ident.key and ident.display_name
+        assert appid.find_app_window(ident.key, [w]) is w
+
+    # Schema 1 (title keys) -> schema 2 (executable keys)
+    from deskdriver.navigation.roadmap_migrate import migrate_entries
+    old = {
+        "notepad": {"elements": {"save": {"name": "Save"}}, "last_updated": 1},
+        "*notes - Notepad": {"elements": {"open": {"name": "Open"}}, "last_updated": 2,
+                             "process_info": {"exe_name": "Notepad.exe", "class_name": "Notepad"}},
+        "Page setup": {"elements": {"ok": {"name": "OK"}}, "last_updated": 3,
+                       "process_info": {"exe_name": "Notepad.exe", "class_name": "#32770"}},
+        "Untitled - Paint": {"elements": {}, "last_updated": 1},
+        "Bank_Statement.pdf - Viewer": {"elements": {"x": {}}, "last_updated": 1},
+    }
+    migrated, unmigrated = migrate_entries(old)
+    assert set(migrated) == {"notepad.exe", "notepad.exe/page setup", "mspaint.exe"}
+    assert set(migrated["notepad.exe"]["elements"]) == {"save", "open"}
+    assert migrated["notepad.exe"]["display_name"] == "Notepad"
+    assert migrated["notepad.exe/page setup"]["surface"] == "page setup"
+    assert list(unmigrated) == ["Bank_Statement.pdf - Viewer"]
+    assert "*notes - Notepad" not in str(migrated)  # window titles are not carried over
 
     # Element matching: no reverse-substring hits ("ok" must not match "bookmark")
     els = {"ok": 1, "bookmark this tab": 1, "save": 1, "save as": 1}
@@ -413,9 +473,9 @@ def test_review_regressions():
         from pathlib import Path
         d = Path(tmp) / "ui_roadmap"
         r = rm.UIRoadmap(directory=d, legacy_file=None)
-        r.map["Admin: Prompt"] = {"elements": {"x": {"name": "X"}}}
-        r.map["taskbar"] = {"elements": {}}
-        r.map["Taskbar"] = {"elements": {}}
+        r.map["Admin: Prompt"] = {"elements": {"x": {"name": "X"}}, "schema": 2}
+        r.map["taskbar"] = {"elements": {}, "schema": 2}
+        r.map["Taskbar"] = {"elements": {}, "schema": 2}
         r.save()
         names = sorted(f.name for f in d.glob("*.json"))
         assert "admin-prompt.json" in names and "taskbar.json" in names and len(names) == 3
@@ -438,6 +498,40 @@ def test_review_regressions():
         b.learn_window("Weird App", [el("from b 2")], rect)  # stale b still holds "from a"
         final = rm.UIRoadmap(directory=d, legacy_file=None).map["Weird App"]["elements"]
         assert "from a" not in final and {"from b", "from b 2"} <= set(final)
+
+        # Document / browser tabs, web content and secrets are never cached
+        from deskdriver.navigation.element_filter import is_transient, redact_secrets
+        tab = {"name": "notes.txt. Modified.", "control_type": "TabItemControl"}
+        assert is_transient(tab, "notepad.exe")
+        assert is_transient({"name": "Gmail - Memory usage - 280 MB", "control_type": "DataItemControl"}, "brave.exe")
+        assert is_transient({"name": "reddit", "control_type": "HyperlinkControl"}, "brave.exe")
+        assert is_transient({"name": "Go", "control_type": "ButtonControl",
+                             "container_path": "pane > Chrome Legacy Window > id:wikiArticle"}, "antigravity.exe")
+        assert is_transient({"name": "~ ai-mouse", "control_type": "TabItemControl",
+                             "container_path": "pane > id:TabView"}, "windowsterminal.exe")
+        assert is_transient({"name": "sk-ant-api03-abcDEF123. Modified", "control_type": "ButtonControl"})
+        assert not is_transient({"name": "Reload", "control_type": "ButtonControl"}, "brave.exe")
+        assert not is_transient({"name": "View", "control_type": "TabItemControl",
+                                 "container_path": "id:12320"}, "explorer.exe")
+        assert redact_secrets("key sk-ant-api03-abc_DEF-1 here") == "key [REDACTED] here"
+
+        a.learn_window("notepad.exe", [el("Save"), {**el("todo.txt. Modified."), "control_type": "TabItemControl"}], rect)
+        assert "save" in a.map["notepad.exe"]["elements"]
+        assert not any("todo" in k for k in a.map["notepad.exe"]["elements"])
+        a.map["notepad.exe"]["elements"]["old tab. unmodified."] = {"name": "old tab. Unmodified."}
+        assert a.prune_transient() == {"notepad.exe": 1}
+        assert "old tab. unmodified." not in rm.UIRoadmap(directory=d, legacy_file=None).map["notepad.exe"]["elements"]
+
+        # "explorer" means File Explorer, not the taskbar that shares its exe
+        a.map["explorer.exe#shell_traywnd"] = {"elements": {}, "schema": 2, "exe": "explorer.exe", "display_name": "Tray Test"}
+        a.map["explorer.exe"] = {"elements": {}, "schema": 2, "exe": "explorer.exe", "display_name": "File Explorer"}
+        assert a.resolve_app_key("explorer") == "explorer.exe"
+        assert a.resolve_app_key("tray test") == "explorer.exe#shell_traywnd"
+        from deskdriver.automation.appid import AppIdentity, app_matches
+        tray = AppIdentity("explorer.exe#shell_traywnd", "explorer.exe", "Taskbar", "shell_traywnd", "")
+        files = AppIdentity("explorer.exe", "explorer.exe", "File Explorer", "cabinetwclass", "")
+        assert not app_matches(tray, "explorer") and app_matches(tray, "taskbar")
+        assert app_matches(files, "explorer") and app_matches(files, "explorer.exe")
     print(" -> Review regressions verified")
 
 

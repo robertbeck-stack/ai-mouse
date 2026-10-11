@@ -9,6 +9,7 @@ from typing import Any
 
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.automation.windows import list_windows
+from deskdriver.automation.appid import identify_window, find_app_window
 from deskdriver.navigation.roadmap import roadmap
 
 
@@ -56,7 +57,7 @@ WINDOWS_SETTINGS_TREE = {
 
 
 STANDARD_MENU_HIERARCHY = {
-    "notepad": {
+    "notepad.exe": {
         "File": [
             {"name": "New tab", "shortcut": "Ctrl+N"},
             {"name": "New window", "shortcut": "Ctrl+Shift+N"},
@@ -91,7 +92,7 @@ STANDARD_MENU_HIERARCHY = {
             {"name": "Word wrap", "shortcut": "Alt+Z"},
         ],
     },
-    "paint": {
+    "mspaint.exe": {
         "File": [
             {"name": "New", "shortcut": "Ctrl+N"},
             {"name": "Open", "shortcut": "Ctrl+O"},
@@ -128,7 +129,7 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
     q = (app_query or "").strip().lower()
 
     # 1. OS Settings Tree
-    if q in ("settings", "ms-settings", "windows settings", "os settings"):
+    if q in ("settings", "ms-settings", "windows settings", "os settings", "systemsettings", "systemsettings.exe"):
         branches = []
         for cat_name, items in WINDOWS_SETTINGS_TREE.items():
             children = []
@@ -156,28 +157,13 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
         }
 
     # 2. Match Target Application Window & Roadmap Cache
-    wins = list_windows()
-    target_win = None
-    for w in wins:
-        if q and q in w["title"].lower():
-            target_win = w
-            break
-        elif q and q in roadmap.get_app_key(w["title"]).lower():
-            target_win = w
-            break
-
-    # If no window open, check if app exists in roadmap cache
-    matched_app_key = None
-    for ak in roadmap.map:
-        if q and (q == ak.lower() or q in ak.lower()):
-            matched_app_key = ak
-            break
-
+    # The cached app (by key, exe or display name) - works even when no window is open
+    matched_app_key = roadmap.resolve_app_key(app_query or "")
+    target_win = find_app_window(app_query or "", list_windows()) if q else None
     if not matched_app_key and target_win:
-        matched_app_key = roadmap.get_app_key(target_win["title"])
-
+        matched_app_key = identify_window(target_win["hwnd"]).key
     if not matched_app_key:
-        matched_app_key = q or "unknown"
+        matched_app_key = app_query if (app_query or "") in roadmap.map else (q or "unknown")
 
     cached_elements = roadmap.map.get(matched_app_key, {}).get("elements", {})
 
@@ -190,7 +176,7 @@ def build_application_tree(app_query: str) -> dict[str, Any]:
     other_branch = []
 
     # Check for known sub-menus
-    std_menus = STANDARD_MENU_HIERARCHY.get(matched_app_key.lower(), {})
+    std_menus = STANDARD_MENU_HIERARCHY.get(matched_app_key.split("/", 1)[0].lower(), {}) if "/" not in matched_app_key else {}
     populated_menus = set()
 
     # Build Menu Hierarchy from std_menus

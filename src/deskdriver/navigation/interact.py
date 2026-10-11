@@ -10,22 +10,36 @@ import time
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.core.keyboard import press_hotkey, type_text, COMMON_HOTKEYS
 from deskdriver.core.mouse import move_and_click, mouse_click, get_mouse_position, user32
-from deskdriver.automation.windows import list_windows, focus_window
+from deskdriver.automation.windows import list_windows, focus_window, window_at
 from deskdriver.automation.uia import inspect_at, scan_clickable_elements
+from deskdriver.automation.appid import identify_window, find_app_window
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.roadmap import roadmap, match_element_key
 from deskdriver.navigation.deepdive import deep_dive_app
 
 
-def list_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> list[dict]:
+def _target_window(window_search: str, wins: list[dict]) -> dict | None:
+    """The window an action is aimed at: the named app / title, else the topmost window."""
+    if window_search:
+        return find_app_window(window_search, wins)
+    return wins[0] if wins else None
+
+
+def list_clickable_elements(
+    window_search: str | None = None, max_elements: int = 150, hwnd: int | None = None
+) -> list[dict]:
     """
     Find clickable interactive elements in the target (or foreground) window and
     learn them into the roadmap so later lookups hit the cache.
+    window_search may name the app ("notepad", "Settings") or part of a title.
     """
-    elements, window = scan_clickable_elements(window_search, max_elements)
-    if elements and window:
+    if hwnd is None and window_search:
+        win = find_app_window(window_search, list_windows())
+        hwnd = win["hwnd"] if win else None
+    elements, window = scan_clickable_elements(window_search, max_elements, hwnd=hwnd)
+    if elements and window and window.get("hwnd"):
         try:
-            roadmap.learn_window(window_title=window["title"], elements=elements, window_rect=window["rect"])
+            roadmap.learn_window(identify_window(window["hwnd"]), elements=elements, window_rect=window["rect"])
         except Exception:
             pass
     return elements
@@ -51,33 +65,22 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
     if target_clean in COMMON_HOTKEYS:
         hk = COMMON_HOTKEYS[target_clean]
         if window_search:
-            wins = list_windows()
-            for w in wins:
-                if window_search.lower() in w["title"].lower():
-                    focus_window(w["hwnd"])
-                    break
+            win = find_app_window(window_search, list_windows())
+            if win:
+                focus_window(win["hwnd"])
         press_hotkey(hk)
         return {"status": "universal_hotkey_executed", "action": element_name, "hotkey": hk}
 
     # 3. Find target window
-    wins = list_windows()
-    target_win = None
-    if window_search:
-        q = window_search.lower()
-        for w in wins:
-            if q in w["title"].lower():
-                target_win = w
-                break
-    elif wins:
-        target_win = wins[0]
-
+    target_win = _target_window(window_search, list_windows())
     if not target_win:
         return {"error": "Target window not found"}
 
     focus_window(target_win["hwnd"])
+    app_key = identify_window(target_win["hwnd"]).key
 
     # 4. Check Roadmap Cache
-    cached = roadmap.find_cached_element(target_win["title"], element_name, target_win["rect"])
+    cached = roadmap.find_cached_element(app_key, element_name, target_win["rect"])
     if cached:
         # If element has a known accelerator shortcut, use it for 10x speedup
         if cached.get("shortcut"):
@@ -95,7 +98,7 @@ def fast_click_element(element_name: str, window_search: str = "", instant: bool
 
 
     # 5. Cache miss: scan (which also learns the window), then click
-    elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
+    elements = list_clickable_elements(hwnd=target_win["hwnd"], max_elements=50)
     by_name = {el["name"].strip().lower(): el for el in elements if el.get("name")}
     key = match_element_key(by_name, element_name)
     matched = by_name.get(key) if key else None
@@ -157,17 +160,10 @@ def record_element_at_cursor(custom_name: str = "") -> dict:
     """
     x, y = get_mouse_position()
     info = inspect_at(x, y)
-    win_title = info.get("window_title", "")
-
-    # Locate window bounding box
-    win_rect = None
-    if win_title:
-        for w in list_windows():
-            if win_title.lower() in w["title"].lower():
-                win_rect = w["rect"]
-                break
-    if not win_rect:
-        win_rect = {"left": 0, "top": 0, "right": 1920, "bottom": 1080}
+    win = window_at(x, y)
+    if not win:
+        return {"error": f"No window under the cursor at ({x}, {y})"}
+    identity = identify_window(win["hwnd"])
 
     rect = info.get("bounding_rect") or {"left": x - 10, "top": y - 10, "width": 20, "height": 20}
     name = custom_name.strip() or info.get("name", "").strip() or f"Control_{x}_{y}"
@@ -180,10 +176,11 @@ def record_element_at_cursor(custom_name: str = "") -> dict:
         "rect": rect,
     }
 
-    roadmap.learn_window(win_title or "CustomApp", [element_dict], win_rect)
+    roadmap.learn_window(identity, [element_dict], win["rect"])
     return {
         "status": "element_recorded",
-        "app": roadmap.get_app_key(win_title or "CustomApp"),
+        "app": identity.key,
+        "display_name": identity.display_name,
         "element": element_dict["name"],
         "control_type": element_dict["control_type"],
         "center_x": element_dict["center_x"],
@@ -205,28 +202,20 @@ def wait_for_element(
     start = time.time()
     while time.time() - start < timeout:
         wins = list_windows()
-        target_win = None
-        if window_search:
-            q = window_search.lower()
-            for w in wins:
-                if q in w["title"].lower():
-                    target_win = w
-                    break
-        elif wins:
-            target_win = wins[0]
+        target_win = _target_window(window_search, wins)
 
         if target_win:
-            cached = roadmap.find_cached_element(target_win["title"], element_name, target_win["rect"])
+            cached = roadmap.find_cached_element(identify_window(target_win["hwnd"]).key, element_name, target_win["rect"])
             if cached:
                 return cached
 
             if not window_search:
                 for w in wins:
-                    cached_other = roadmap.find_cached_element(w["title"], element_name, w["rect"])
+                    cached_other = roadmap.find_cached_element(identify_window(w["hwnd"]).key, element_name, w["rect"])
                     if cached_other:
                         return cached_other
 
-            elements = list_clickable_elements(window_search=target_win["title"], max_elements=50)
+            elements = list_clickable_elements(hwnd=target_win["hwnd"], max_elements=50)
             by_name = {el["name"].strip().lower(): el for el in elements if el.get("name")}
             key = match_element_key(by_name, element_name)
             if key:

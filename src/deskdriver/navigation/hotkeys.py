@@ -10,7 +10,7 @@ __all__ = ["APP_PROFILES", "SHORTCUT_REGEX", "extract_shortcut_from_name", "get_
 
 # Standard application hotkey profiles
 APP_PROFILES = {
-    "brave": {
+    "brave.exe": {
         "new tab": "Ctrl+T",
         "close tab": "Ctrl+W",
         "reopen closed tab": "Ctrl+Shift+T",
@@ -34,7 +34,7 @@ APP_PROFILES = {
         "print": "Ctrl+P",
         "save page as": "Ctrl+S",
     },
-    "chrome": {
+    "chrome.exe": {
         "new tab": "Ctrl+T",
         "close tab": "Ctrl+W",
         "reopen closed tab": "Ctrl+Shift+T",
@@ -52,7 +52,7 @@ APP_PROFILES = {
         "devtools": "F12",
         "print": "Ctrl+P",
     },
-    "notepad": {
+    "notepad.exe": {
         "new file": "Ctrl+N",
         "new window": "Ctrl+Shift+N",
         "open": "Ctrl+O",
@@ -75,7 +75,7 @@ APP_PROFILES = {
         "zoom out": "Ctrl+Minus",
         "reset zoom": "Ctrl+0",
     },
-    "explorer": {
+    "explorer.exe": {
         "new folder": "Ctrl+Shift+N",
         "new window": "Ctrl+N",
         "close window": "Ctrl+W",
@@ -91,7 +91,7 @@ APP_PROFILES = {
         "forward": "Alt+Right",
         "up one folder": "Alt+Up",
     },
-    "polytopia": {
+    "polytopia.exe": {
         "end turn / confirm": "Space",
         "cycle next unit": "Tab",
         "game menu / cancel": "Esc",
@@ -107,10 +107,10 @@ APP_PROFILES = {
 
 
 def get_app_hotkeys(app_name: str) -> dict[str, str]:
-    """Retrieve known hotkey profile for a given application by name."""
-    low = app_name.lower()
+    """Known hotkey profile for an app, by key or name ("notepad.exe", "Notepad", "notepad")."""
+    low = app_name.strip().lower()
     for key, shortcuts in APP_PROFILES.items():
-        if key in low:
+        stem = key.removesuffix(".exe")
+        if low in (key, stem) or stem in low:
             return shortcuts
     return {}
-

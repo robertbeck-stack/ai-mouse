@@ -10,6 +10,7 @@ from ctypes import wintypes
 import time
 from deskdriver.core.desktop import ensure_desktop
 from deskdriver.automation.windows import list_windows, focus_window, user32
+from deskdriver.automation.appid import identify_window, find_app_window
 from deskdriver.automation.uia import is_interactive_control, get_element_name
 from deskdriver.core.shortcuts import extract_shortcut_from_name
 from deskdriver.navigation.roadmap import roadmap
@@ -247,8 +248,9 @@ def deep_dive_app(
     Exhaustively indexes every menu hierarchy, toolbar, input field, tab, toggle,
     value, tooltip, and keyboard accelerator into persistent roadmap memory without cursor disruption.
 
-    hwnd targets an exact window instead of searching titles. background=True is for
-    scans the user did not ask for (session recorder): no focus change, no beep.
+    window_search may name the app ("notepad", "notepad.exe", "Settings") or part of a
+    window title. hwnd targets an exact window instead. background=True is for scans
+    the user did not ask for (session recorder): no focus change, no beep.
     """
     ensure_desktop()
     t0 = time.perf_counter()
@@ -258,11 +260,7 @@ def deep_dive_app(
     if hwnd is not None:
         target_win = next((w for w in wins if w["hwnd"] == hwnd), None)
     elif window_search:
-        q = window_search.lower()
-        for w in wins:
-            if q in w["title"].lower():
-                target_win = w
-                break
+        target_win = find_app_window(window_search, wins)
     elif wins:
         for w in wins:
             t = w["title"].lower()
@@ -278,15 +276,19 @@ def deep_dive_app(
     hwnd = target_win["hwnd"]
     title = target_win["title"]
     win_rect = target_win["rect"]
-    app_key = roadmap.get_app_key(title)
+    identity = identify_window(hwnd)
+    app_key = identity.key
     roadmap.refresh_app(app_key)
 
     if not background:
         focus_window(hwnd)
         time.sleep(0.12)
 
-    # 1. Process Specs
+    # 1. Process Specs (for UWP apps, report the app's process, not ApplicationFrameHost)
     specs = get_window_process_specs(hwnd)
+    if identity.exe and identity.exe != specs["exe_name"].lower():
+        specs["host_exe"] = specs["exe_name"]
+        specs["exe_name"] = identity.exe
 
     all_discovered = []
     seen_names = set()
@@ -463,7 +465,7 @@ def deep_dive_app(
 
     # 6. Save directly into persistent UI Roadmap
     roadmap.learn_window(
-        window_title=title,
+        identity,
         elements=all_discovered,
         window_rect=win_rect,
         process_info=specs,

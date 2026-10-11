@@ -11,7 +11,8 @@ import time
 
 from deskdriver.core.mouse import move_and_click, drag_and_drop
 from deskdriver.core.keyboard import press_hotkey, type_text
-from deskdriver.automation.windows import focus_window, snap_window, wait_for_window
+from deskdriver.automation.windows import focus_window, snap_window
+from deskdriver.automation.appid import wait_for_app_window
 from deskdriver.navigation.fastpaths import execute_fastpath
 from deskdriver.navigation.interact import fast_click_element, fill_input, wait_for_element
 from deskdriver.navigation.deepdive import deep_dive_app
@@ -141,7 +142,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                     continue
 
                 # 2. Window already exists?
-                win = wait_for_window(arg, timeout=0.3)
+                win = wait_for_app_window(arg, timeout=0.3)
                 if win:
                     focus_window(win["hwnd"])
                     results.append({"step": idx + 1, "action": f"focused existing '{arg}'", "status": "ok"})
@@ -150,7 +151,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                     try:
                         _launch(arg)
                         time.sleep(0.5)
-                        w = wait_for_window(arg, timeout=2.5)
+                        w = wait_for_app_window(arg, timeout=2.5)
                         if w:
                             focus_window(w["hwnd"])
                         results.append({"step": idx + 1, "action": f"launched '{arg}'", "status": "ok"})
@@ -158,7 +159,7 @@ def execute_action(action_str: str, interval: float = 0.05) -> dict:
                         results.append({"step": idx + 1, "action": f"launch '{arg}' failed: {err}", "status": "error"})
 
             elif verb in ("focus", "window", "app"):
-                w = wait_for_window(arg, timeout=2.0)
+                w = wait_for_app_window(arg, timeout=2.0)
                 if w:
                     focus_window(w["hwnd"])
                     results.append({"step": idx + 1, "action": f"focused '{arg}'", "status": "ok"})

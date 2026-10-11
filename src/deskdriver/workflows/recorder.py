@@ -16,6 +16,7 @@ from deskdriver.core.desktop import ensure_desktop
 from deskdriver.automation.windows import user32
 from deskdriver.automation.uia import get_element_at
 from deskdriver.navigation.roadmap import roadmap
+from deskdriver.automation.appid import identify_window
 from deskdriver.navigation.history import record_scan_log
 from deskdriver.navigation.deepdive import deep_dive_app
 
@@ -174,8 +175,9 @@ class SessionRecorder:
 
                     # Avoid recording the dashboard itself or developer tools
                     lt = title.lower()
-                    if title and "dashboard" not in lt and "antigravity" not in lt:
-                        app_key = roadmap.get_app_key(title)
+                    if title and "deskdriver wiki" not in lt and "dashboard" not in lt and "antigravity" not in lt:
+                        identity = identify_window(int(curr_hwnd))
+                        app_key = identity.key
                         with self._lock:
                             first_visit = app_key not in self._visited_apps
                             if first_visit:
@@ -189,7 +191,7 @@ class SessionRecorder:
                                 "action": f"focus:{app_key}",
                                 "type": "window_focus",
                                 "app": app_key,
-                                "window_title": title,
+                                "display_name": identity.display_name,
                                 "time": elapsed,
                             })
 

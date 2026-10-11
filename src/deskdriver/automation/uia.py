@@ -124,16 +124,21 @@ def get_element_at(x: int, y: int) -> dict:
 inspect_at = get_element_at
 
 
-def scan_clickable_elements(window_search: str | None = None, max_elements: int = 150) -> tuple[list[dict], dict | None]:
+def scan_clickable_elements(
+    window_search: str | None = None, max_elements: int = 150, hwnd: int | None = None
+) -> tuple[list[dict], dict | None]:
     """
-    Find clickable interactive elements in the target window (or the foreground window).
-    Returns (elements, window) where window is {"title", "rect"} of the scanned top-level
-    window, or None if nothing could be scanned. Read-only: nothing is persisted.
+    Find clickable interactive elements in a window: `hwnd` if given, else the first
+    window whose title contains `window_search`, else the foreground window.
+    Returns (elements, window) where window is {"hwnd", "title", "rect"} of the scanned
+    top-level window, or None if nothing could be scanned. Read-only: nothing is persisted.
     """
     ensure_desktop()
 
     target_ctrl = None
-    if window_search:
+    if hwnd:
+        target_ctrl = auto.ControlFromHandle(hwnd)
+    elif window_search:
         wins = list_windows()
         q = window_search.lower()
         for w in wins:
@@ -191,6 +196,7 @@ def scan_clickable_elements(window_search: str | None = None, max_elements: int 
         top_win = target_ctrl.GetTopLevelControl() or target_ctrl
         w_rect = top_win.BoundingRectangle
         window = {
+            "hwnd": int(top_win.NativeWindowHandle or 0),
             "title": top_win.Name or "unknown",
             "rect": {"left": w_rect.left, "top": w_rect.top, "right": w_rect.right, "bottom": w_rect.bottom},
         }

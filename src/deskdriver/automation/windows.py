@@ -65,6 +65,36 @@ def list_windows() -> list[dict]:
     return windows
 
 
+def window_info(hwnd: int) -> dict:
+    """{"hwnd", "title", "rect"} of a window, in the same shape list_windows() returns."""
+    rect = wintypes.RECT()
+    user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect))
+    length = user32.GetWindowTextLengthW(wintypes.HWND(hwnd))
+    buff = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(wintypes.HWND(hwnd), buff, length + 1)
+    return {
+        "hwnd": int(hwnd),
+        "title": buff.value.strip(),
+        "rect": {
+            "left": rect.left,
+            "top": rect.top,
+            "right": rect.right,
+            "bottom": rect.bottom,
+            "width": rect.right - rect.left,
+            "height": rect.bottom - rect.top,
+        },
+    }
+
+
+def window_at(x: int, y: int) -> dict | None:
+    """Top-level window under a screen point."""
+    hwnd = user32.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+    if not hwnd:
+        return None
+    root = user32.GetAncestor(wintypes.HWND(hwnd), 2) or hwnd  # GA_ROOT
+    return window_info(int(root))
+
+
 def find_window_hwnd(hwnd_or_title: int | str) -> int | None:
     """Resolve an HWND or partial window title to an active HWND. An empty title means the foreground window."""
     if isinstance(hwnd_or_title, int):
@@ -189,7 +219,7 @@ def snap_window(hwnd_or_title: int | str, side: str = "left") -> bool:
     """
     Snap a window to screen halves or layout quadrants on its current monitor.
     Supports multi-monitor setups automatically.
-    Sides: 'left', 'right', 'top', 'bottom', 'center', 'full'.
+    Sides: 'left', 'right', 'top', 'bottom', 'center', 'full', 'minimize'.
     """
     ensure_desktop()
     hwnd = find_window_hwnd(hwnd_or_title)
@@ -199,6 +229,9 @@ def snap_window(hwnd_or_title: int | str, side: str = "left") -> bool:
     s = side.lower().strip()
     if s in ("full", "maximize"):
         return maximize_window(hwnd)
+    if s in ("minimize", "min"):
+        minimize_window(hwnd)
+        return bool(user32.IsIconic(hwnd))
 
     restore_window(hwnd)
 

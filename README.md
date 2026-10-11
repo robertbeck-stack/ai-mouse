@@ -56,7 +56,7 @@ Dispatches inputs directly into the Windows kernel event queue using verified 40
 - Native Per-Monitor v2 DPI Awareness (`SetProcessDpiAwarenessContext(-4)`).
 
 ### 2. Spatial Roadmap & Responsive Anchoring
-Learns application UI structures and serializes them to `ui_roadmap/` — one JSON file per application (e.g. `ui_roadmap/notepad.json`). An existing monolithic `ui_roadmap.json` is split automatically on first load.
+Learns application UI structures and serializes them to `ui_roadmap/` — one JSON file per application, keyed by executable rather than window title (e.g. `ui_roadmap/notepad.exe.json`; UWP apps resolve to their real process such as `systemsettings.exe`, dialogs get their own surface like `notepad.exe/page setup`). Older title-keyed data is migrated automatically on first load (originals kept in `ui_roadmap/_backup_schema1/`).
 - **$O(1)$ coordinate resolution:** Resolves target buttons in under 1 ms without re-querying the accessibility tree.
 - **Responsive Anchors:** Automatically anchors controls to `top-left`, `top-right`, or `bottom-right`. When a window is resized, button coordinates dynamically adjust without re-scanning.
 
@@ -225,10 +225,13 @@ deskdriver/
 │   │   │   ├── clipboard.py       # Native Win32 clipboard
 │   │   │   └── shortcuts.py       # Accelerator extraction from UI text
 │   │   ├── automation/            # Windows UI Automation (UIA), read-only
+│   │   │   ├── appid.py           # Which program a window belongs to (exe-based app keys)
 │   │   │   ├── windows.py         # Window enumeration & foreground focus
 │   │   │   └── uia.py             # COM element inspection & clickable scans
 │   │   ├── navigation/            # Spatial navigation & caching
 │   │   │   ├── roadmap.py         # Per-app roadmap store (ui_roadmap/*.json)
+│   │   │   ├── roadmap_migrate.py # Title-keyed (schema 1) -> exe-keyed (schema 2) migration
+│   │   │   ├── element_filter.py  # Keeps tabs, web content and secrets out of the roadmap
 │   │   │   ├── interact.py        # Click / fill / wait for named elements
 │   │   │   ├── deepdive.py        # Exhaustive app indexing & canvas detection
 │   │   │   ├── prelearn.py        # Batch scanner for open applications

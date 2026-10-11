@@ -9,6 +9,7 @@ import json
 import webbrowser
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
 from datetime import datetime
 
 # Add src to python path
@@ -128,6 +129,15 @@ HTML_CONTENT = """<!DOCTYPE html>
             align-items: center;
             gap: 8px;
         }
+        /* Compact buttons for table rows */
+        .btn-wiki.btn-sm {
+            font-size: 11px;
+            padding: 1px 6px;
+            line-height: 1.4;
+        }
+        .btn-sm + .btn-sm {
+            margin-left: 4px;
+        }
         .btn-wiki {
             background: #f8f9fa;
             color: #202122;
@@ -231,7 +241,16 @@ HTML_CONTENT = """<!DOCTYPE html>
             text-decoration: none;
             background: #f8f9fa;
         }
+        .sidebar-key {
+            font-family: Consolas, monospace;
+            font-size: 12.5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-right: 6px;
+        }
         .sidebar-badge {
+            flex-shrink: 0;
             font-size: 11px;
             background: #f8f9fa;
             color: #54595d;
@@ -429,7 +448,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             border: 1px solid #a2a9b1;
         }
         .wikitable td {
-            padding: 6px 10px;
+            padding: 4px 10px;
             border: 1px solid #a2a9b1;
             color: #202122;
             background: #ffffff;
@@ -496,39 +515,77 @@ HTML_CONTENT = """<!DOCTYPE html>
             text-transform: uppercase;
         }
 
+        /* COMPACT CONTROL TABLES (one line per row, details in the tooltip) */
+        .compact-table {
+            table-layout: fixed;
+        }
+        .compact-table td {
+            padding: 3px 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .compact-table .kbd-cap {
+            font-size: 10.5px;
+            padding: 0 4px;
+        }
+        code.recipe {
+            background: #f0f2f5;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 11.5px;
+            color: #0b5cab;
+            cursor: copy;
+        }
+        code.recipe:hover {
+            background: #e3e9f3;
+        }
+        .ctrl-type, .ctrl-pos {
+            color: #54595d;
+            font-size: 11.5px;
+        }
+        details.tree-section > summary {
+            cursor: pointer;
+            color: var(--primary);
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
         /* APP CARDS GRID */
         .encyclopedia-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 14px;
-            margin: 14px 0;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+            gap: 2px 16px;
+            margin: 8px 0 14px;
         }
         .encyclo-card {
-            background: #ffffff;
-            border: 1px solid #a2a9b1;
-            padding: 14px;
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 3px 6px;
+            border-bottom: 1px dotted #c8ccd1;
             cursor: pointer;
             text-decoration: none;
             color: inherit;
-            transition: all 0.15s;
         }
         .encyclo-card:hover {
             background: #f8f9fa;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         }
-        .encyclo-card h4 {
-            font-family: var(--serif);
-            font-size: 17px;
+        .encyclo-card .card-name {
             color: #3366cc;
-            margin-bottom: 4px;
+            font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
-        .encyclo-card:hover h4 {
+        .encyclo-card:hover .card-name {
             text-decoration: underline;
         }
-        .encyclo-card p {
-            font-size: 12.5px;
+        .encyclo-card .card-count {
+            font-size: 11.5px;
             color: #54595d;
-            line-height: 1.4;
+            flex-shrink: 0;
         }
 
         .last-scan-banner {
@@ -719,6 +776,61 @@ HTML_CONTENT = """<!DOCTYPE html>
         let currentView = 'main';
         let currentApp = null;
 
+        // Everything rendered here comes from window titles, control names and saved
+        // actions - i.e. text other programs and web pages control. Always pass it through
+        // esc() for HTML and jsArg() for inline onclick arguments.
+        const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        function esc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, c => HTML_ESCAPES[c]);
+        }
+        function jsArg(value) {
+            return esc(JSON.stringify(String(value ?? '')));
+        }
+        // Apps are keyed by executable ("notepad.exe", "notepad.exe/page setup");
+        // show their display name and accept either form when matching.
+        function appLabel(key) {
+            const entry = ((fullData && fullData.roadmap) || {})[key] || {};
+            const name = entry.display_name || key;
+            return entry.surface ? `${name} › ${entry.surface}` : name;
+        }
+        function findAppKey(name) {
+            const roadmap = (fullData && fullData.roadmap) || {};
+            const low = String(name || '').trim().toLowerCase();
+            if (!low) return null;
+            const keys = Object.keys(roadmap);
+            // Exact key first, so "explorer.exe" isn't claimed by "explorer.exe#shell_traywnd"
+            return keys.find(k => k.toLowerCase() === low) || keys.find(k => {
+                const e = roadmap[k] || {};
+                const exe = (e.exe || '').toLowerCase();
+                const isMainWindow = k.toLowerCase() === exe;
+                return !e.surface && ((e.display_name || '').toLowerCase() === low
+                    || (isMainWindow && exe.replace(/\\.exe$/, '') === low));
+            }) || null;
+        }
+        // Dialogs ("notepad.exe/page setup") are stored separately because their
+        // coordinates are relative to their own window, but they're listed under
+        // the app that owns them. A dialog whose owner isn't learned stays top-level.
+        function isSubWindow(key, roadmap) {
+            const slash = key.indexOf('/');
+            return slash > 0 && key.slice(0, slash) in roadmap;
+        }
+        function subWindowKeys(appKey) {
+            const roadmap = (fullData && fullData.roadmap) || {};
+            return Object.keys(roadmap).filter(k => k.startsWith(appKey + '/')).sort();
+        }
+        // "explorer.exe, notepad.exe (+2 more)" -> "File Explorer, Notepad (+2 more)"
+        function appListLabel(text) {
+            return String(text || '').split(', ').map(part => {
+                const key = findAppKey(part);
+                return key ? appLabel(key) : part;
+            }).join(', ');
+        }
+        function sortedAppKeys(roadmap) {
+            return Object.keys(roadmap)
+                .filter(k => !isSubWindow(k, roadmap))
+                .sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
+        }
+
         let toastTimer = null;
         function showToast(msg, duration = 8000) {
             const t = document.getElementById('toast');
@@ -726,7 +838,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             if (toastTimer) clearTimeout(toastTimer);
             t.innerHTML = `
                 <span class="toast-close" onclick="document.getElementById('toast').style.display='none'">&times;</span>
-                <div style="display: inline-block;">${msg}</div>
+                <div style="display: inline-block;">${esc(msg)}</div>
                 <a onclick="navigateTo('history'); document.getElementById('toast').style.display='none';">[View Log]</a>
             `;
             t.style.display = 'block';
@@ -758,7 +870,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             else if (view === 'fastpaths') document.getElementById('menu-fastpaths')?.classList.add('active');
             else if (view === 'tester') document.getElementById('menu-tester')?.classList.add('active');
             else if (view === 'app' && appKey) {
-                document.getElementById('side-app-' + appKey)?.classList.add('active');
+                document.getElementById('side-app-' + appKey.split('/')[0])?.classList.add('active');
             }
 
             renderCurrentView();
@@ -771,12 +883,14 @@ HTML_CONTENT = """<!DOCTYPE html>
             list.innerHTML = '';
             
             const roadmap = data.roadmap || {};
-            for (const [appKey, appData] of Object.entries(roadmap)) {
+            // Sidebar lists the raw app keys (executables); the main page shows display names
+            for (const appKey of Object.keys(roadmap).filter(k => !isSubWindow(k, roadmap)).sort()) {
+                const appData = roadmap[appKey];
                 const count = Object.keys(appData.elements || {}).length;
                 const li = document.createElement('li');
                 li.innerHTML = `
-                    <a class="sidebar-item" id="side-app-${appKey}" onclick="navigateTo('app', '${appKey}')">
-                        <span style="text-transform: capitalize;">${appKey}</span>
+                    <a class="sidebar-item" id="side-app-${esc(appKey)}" title="${esc(appLabel(appKey))}" onclick="navigateTo('app', ${jsArg(appKey)})">
+                        <span class="sidebar-key">${esc(appKey)}</span>
                         <span class="sidebar-badge">${count}</span>
                     </a>
                 `;
@@ -804,8 +918,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 <div class="last-scan-banner">
                     <div>
                         🕒 <strong>Last Scanned:</strong> 
-                        <span class="scan-badge ${badgeClass}">${lastScan.action}</span>
-                        <strong>${lastScan.app}</strong> at ${lastScan.time_str || lastScan.timestamp} &mdash; ${lastScan.summary}
+                        <span class="scan-badge ${badgeClass}">${esc(lastScan.action)}</span>
+                        <strong>${esc(appListLabel(lastScan.app))}</strong> at ${esc(lastScan.time_str || lastScan.timestamp)} &mdash; ${esc(lastScan.summary)}
                     </div>
                     <button class="btn-wiki" style="font-size: 11px; padding: 2px 8px; white-space: nowrap;" onclick="navigateTo('history')">View Scan Log &rarr;</button>
                 </div>
@@ -829,21 +943,20 @@ HTML_CONTENT = """<!DOCTYPE html>
         function renderMainPage(container) {
             const data = fullData;
             const roadmap = data.roadmap || {};
-            const appCount = Object.keys(roadmap).length;
+            const appCount = sortedAppKeys(roadmap).length;
             const elCount = data.total_elements || 0;
             const hkCount = Object.keys(data.common_hotkeys || {}).length;
             const fpCount = Object.keys(data.fastpaths || {}).length;
 
             let appsCardsHtml = '';
-            for (const [key, val] of Object.entries(roadmap)) {
+            for (const key of sortedAppKeys(roadmap)) {
+                const val = roadmap[key];
                 const count = Object.keys(val.elements || {}).length;
                 appsCardsHtml += `
-                    <a class="encyclo-card" onclick="navigateTo('app', '${key}')">
-                        <h4>${key}</h4>
-                        <p>Indexed controls: <strong>${count}</strong></p>
-                        <p style="margin-top: 4px; color: var(--primary); font-size: 11.5px;">Read article & roadmap &rarr;</p>
-                    </a>
-                `;
+                    <a class="encyclo-card" title="${esc(key)} · ${count} controls" onclick="navigateTo('app', ${jsArg(key)})">
+                        <span class="card-name">${esc(appLabel(key))}</span>
+                        <span class="card-count">${count}</span>
+                    </a>`;
             }
 
             container.innerHTML = `
@@ -867,7 +980,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <h2 class="wiki-h2">Indexed Applications Encyclopedia</h2>
-                <p style="color: var(--text-muted); margin-bottom: 16px;">Browse encyclopedic roadmap profiles for all desktop applications currently learned into <code>ui_roadmap/</code> (one file per app):</p>
+                <p style="color: var(--text-muted); margin-bottom: 4px; font-size: 12.5px;">${appCount} apps learned into <code>ui_roadmap/</code> · number = indexed controls</p>
                 <div class="encyclopedia-grid">
                     ${appsCardsHtml}
                 </div>
@@ -880,15 +993,15 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <tbody>
                         <tr>
                             <td><strong><a onclick="navigateTo('hotkeys')" style="color: var(--primary); cursor: pointer;">Universal Keyboard Shortcuts</a></strong></td>
-                            <td>31 Global Windows Accelerators (Save, Copy, Paste, Snip, Task Manager)</td>
+                            <td>${hkCount} Global Windows Accelerators (Save, Copy, Paste, Snip, Task Manager)</td>
                             <td><span style="color: var(--success); font-weight: 600;">0.5 ms</span></td>
-                            <td><button class="btn-wiki" onclick="navigateTo('hotkeys')">Open Article</button></td>
+                            <td><button class="btn-wiki btn-sm" onclick="navigateTo('hotkeys')">Open Article</button></td>
                         </tr>
                         <tr>
                             <td><strong><a onclick="navigateTo('fastpaths')" style="color: var(--primary); cursor: pointer;">Windows OS Fastpaths</a></strong></td>
-                            <td>33 Zero-click URI schemes for native settings, apps, and diagnostics</td>
+                            <td>${fpCount} Zero-click URI schemes for native settings, apps, and diagnostics</td>
                             <td><span style="color: var(--success); font-weight: 600;">0.0 ms</span></td>
-                            <td><button class="btn-wiki" onclick="navigateTo('fastpaths')">Open Article</button></td>
+                            <td><button class="btn-wiki btn-sm" onclick="navigateTo('fastpaths')">Open Article</button></td>
                         </tr>
                     </tbody>
                 </table>
@@ -899,79 +1012,69 @@ HTML_CONTENT = """<!DOCTYPE html>
         function renderAppPage(container, appKey) {
             const appData = (fullData.roadmap || {})[appKey];
             if (!appData) {
-                container.innerHTML = `<h2>Application '${appKey}' not found.</h2>`;
+                container.innerHTML = `<h2>Application '${esc(appKey)}' not found.</h2>`;
                 return;
             }
 
+            const appTitle = appLabel(appKey);
+            const ownerKey = isSubWindow(appKey, fullData.roadmap) ? appKey.slice(0, appKey.indexOf('/')) : null;
+            const subKeys = subWindowKeys(appKey);
+            const subWindowNote = ownerKey ? `
+                <div class="hatnote">This is a dialog of <a onclick="navigateTo('app', ${jsArg(ownerKey)})" style="color: var(--primary); cursor: pointer;">${esc(appLabel(ownerKey))}</a>, stored separately because its coordinates are relative to the dialog window.</div>
+            ` : subKeys.length ? `
+                <div class="hatnote">Dialogs: ${subKeys.map(k => `<a onclick="navigateTo('app', ${jsArg(k)})" style="color: var(--primary); cursor: pointer;">${esc(fullData.roadmap[k].surface || k)}</a> (${Object.keys(fullData.roadmap[k].elements || {}).length})`).join(' · ')}</div>
+            ` : '';
             const elements = Object.values(appData.elements || {});
             const hotkeyElements = elements.filter(e => e.shortcut);
+            // Pure hotkey entries have no position; they're listed under Keyboard Accelerators only
+            const ctrlElements = elements.filter(e => e.control_type !== 'HotkeyAction');
             const proc = appData.process_info || {};
 
-            const btnCount = elements.filter(e => /button|toolbar/i.test(e.control_type || '')).length;
-            const menuCount = elements.filter(e => /menu/i.test(e.control_type || '')).length;
-            const inputCount = elements.filter(e => /edit|combobox|spinner|document/i.test(e.control_type || '')).length;
-            const tabCount = elements.filter(e => /tab|list|tree|item/i.test(e.control_type || '')).length;
-            const toggleCount = elements.filter(e => /check|radio|toggle/i.test(e.control_type || '')).length;
+            const btnCount = ctrlElements.filter(e => /button|toolbar/i.test(e.control_type || '')).length;
+            const menuCount = ctrlElements.filter(e => /menu/i.test(e.control_type || '')).length;
+            const inputCount = ctrlElements.filter(e => /edit|combobox|spinner|document/i.test(e.control_type || '')).length;
+            const tabCount = ctrlElements.filter(e => /tab|list|tree|item/i.test(e.control_type || '')).length;
+            const toggleCount = ctrlElements.filter(e => /check|radio|toggle/i.test(e.control_type || '')).length;
 
             let hkRows = '';
             for (const h of hotkeyElements) {
                 const actionCode = h.ai_action || `hotkey:${h.shortcut.toLowerCase()}`;
                 hkRows += `
                     <tr>
-                        <td><strong>${h.name}</strong></td>
-                        <td><kbd class="kbd-cap">${h.shortcut.toUpperCase()}</kbd></td>
-                        <td><code style="background:#f0f2f5; padding:2px 6px; border-radius:3px; font-size:11.5px; color:#0b5cab;">${actionCode}</code></td>
-                        <td><span style="color: var(--success); font-weight: 600;">0.5 ms</span></td>
-                        <td>
-                            <button class="btn-wiki" onclick="triggerHotkey('${h.shortcut}')">Test / Press</button>
-                            <button class="btn-wiki" style="font-size:11px; padding:2px 6px; margin-left:4px;" onclick="copyAndToast('${actionCode}')">Copy</button>
-                        </td>
-                    </tr>
-                `;
+                        <td title="${esc(h.name)}"><strong>${esc(h.name)}</strong></td>
+                        <td><kbd class="kbd-cap">${esc(h.shortcut.toUpperCase())}</kbd></td>
+                        <td><code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(actionCode)})">${esc(actionCode)}</code></td>
+                        <td><button class="btn-wiki btn-sm" onclick="triggerHotkey(${jsArg(h.shortcut)})">Press</button></td>
+                    </tr>`;
             }
 
+            const ANCHOR_MARK = { rb: ' ↘', r: ' →', b: ' ↓' };
             let elRows = '';
-            for (const el of elements) {
-                const isRight = el.anchor_right;
-                const isBottom = el.anchor_bottom;
-                let anchorTxt = '<span style="color: var(--text-muted); font-size: 11px;">Top-Left</span>';
-                if (isRight && isBottom) anchorTxt = '<span class="scan-badge scan-badge-actionpipeline">Right-Bottom</span>';
-                else if (isRight) anchorTxt = '<span class="scan-badge scan-badge-deepdive">Right-Anchor</span>';
-                else if (isBottom) anchorTxt = '<span class="scan-badge scan-badge-systemprelearn">Bottom-Anchor</span>';
-
-                const scBadge = el.shortcut ? `<kbd class="kbd-cap">${el.shortcut.toUpperCase()}</kbd>` : '<span style="color: var(--text-muted); font-size: 11px;">&mdash;</span>';
+            for (const el of ctrlElements) {
+                const anchor = el.anchor_right && el.anchor_bottom ? 'rb' : el.anchor_right ? 'r' : el.anchor_bottom ? 'b' : '';
+                const anchorTitle = { rb: 'anchored to bottom-right', r: 'anchored to right edge', b: 'anchored to bottom edge' }[anchor] || 'relative to top-left';
                 const actionCode = el.ai_action || (el.shortcut ? `hotkey:${el.shortcut.toLowerCase()}` : `click:${el.name}`);
-                const helpTooltip = el.help_text ? ` title="${el.help_text.replace(/"/g, '&quot;')}"` : '';
+                const tooltip = [el.name, el.help_text, el.container_path && `in: ${el.container_path}`].filter(Boolean).join('\\n');
+                const shortType = (el.control_type || '').replace(/Control$/, '');
 
                 elRows += `
-                    <tr class="ctrl-row" data-type="${(el.control_type || '').toLowerCase()}" data-shortcut="${el.shortcut ? '1' : '0'}"${helpTooltip}>
-                        <td>
-                            <strong>${el.name}</strong>
-                            ${el.help_text ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">ℹ️ ${el.help_text}</div>` : ''}
-                            ${el.container_path ? `<div style="font-size:10.5px; color:#8c9196; margin-top:1px;">📂 ${el.container_path}</div>` : ''}
-                        </td>
-                        <td><code>${el.control_type}</code></td>
-                        <td>
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <code style="background:#f0f2f5; padding:2px 6px; border-radius:3px; font-size:11.5px; color:#0b5cab;">${actionCode}</code>
-                                <button class="btn-wiki" style="font-size:10.5px; padding:1px 5px;" onclick="copyAndToast('${actionCode.replace(/'/g, "\\'")}')">Copy</button>
-                            </div>
-                        </td>
-                        <td><code>rel: (${el.rel_x}, ${el.rel_y})</code> <span style="margin-left:4px;">${anchorTxt}</span></td>
-                        <td>${scBadge}</td>
-                    </tr>
-                `;
+                    <tr class="ctrl-row" data-type="${esc((el.control_type || '').toLowerCase())}" data-shortcut="${el.shortcut ? '1' : '0'}">
+                        <td title="${esc(tooltip)}"><strong>${esc(el.name)}</strong>${el.shortcut ? ` <kbd class="kbd-cap">${esc(el.shortcut.toUpperCase())}</kbd>` : ''}</td>
+                        <td class="ctrl-type">${esc(shortType)}</td>
+                        <td><code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(actionCode)})">${esc(actionCode)}</code></td>
+                        <td class="ctrl-pos" title="${esc(anchorTitle)}">${esc(el.rel_x)}, ${esc(el.rel_y)}${ANCHOR_MARK[anchor] || ''}</td>
+                    </tr>`;
             }
 
             const canvasBadge = proc.is_canvas_game ? `
-                <tr><th>Engine Surface</th><td><span class="scan-badge scan-badge-actionpipeline" style="font-weight:bold;">🎮 ${proc.engine}</span></td></tr>
+                <tr><th>Engine Surface</th><td><span class="scan-badge scan-badge-actionpipeline" style="font-weight:bold;">🎮 ${esc(proc.engine)}</span></td></tr>
             ` : '';
 
             const procRows = proc.pid ? `
-                <tr><th>Process</th><td><code>${proc.exe_name || 'N/A'}</code> (PID: ${proc.pid})</td></tr>
-                <tr><th>Window Class</th><td><code>${proc.class_name || 'N/A'}</code></td></tr>
+                <tr><th>Process</th><td><code>${esc(proc.exe_name || 'N/A')}</code> (PID: ${esc(proc.pid)})</td></tr>
+                <tr><th>Window Class</th><td><code>${esc(proc.class_name || 'N/A')}</code></td></tr>
                 ${canvasBadge}
-                <tr><th>Resolution & DPI</th><td>${proc.dpi ? proc.dpi + ' DPI' : '96 DPI'} &bull; ${proc.architecture || 'x64'}</td></tr>
+                <tr><th>Resolution & DPI</th><td>${esc(proc.dpi ? proc.dpi + ' DPI' : '96 DPI')} &bull; ${esc(proc.architecture || 'x64')}</td></tr>
             ` : '';
 
             container.innerHTML = `
@@ -986,76 +1089,64 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </div>
                 </div>
 
-                ${getLastScanBannerHtml(fullData)}
-
                 <!-- WIKIPEDIA INFOBOX -->
                 <div class="infobox">
-                    <div class="infobox-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)} (software)</div>
+                    <div class="infobox-title">${esc(appTitle)} (software)</div>
                     <div class="infobox-image">🖥️</div>
                     <table>
-                        <tr><th>Family</th><td>${appKey}</td></tr>
+                        <tr><th>App Key</th><td><code>${esc(appKey)}</code></td></tr>
                         ${procRows}
                         <tr><th>Indexed Controls</th><td><strong>${elements.length}</strong> items</td></tr>
                         <tr><th>Shortcuts</th><td><strong>${hotkeyElements.length}</strong> hotkeys</td></tr>
-                        <tr><th>Positioning</th><td>Relative + Anchors</td></tr>
-                        <tr><th>Cache Storage</th><td><code>${(fullData.storage_files || {})[appKey] || 'ui_roadmap/'}</code></td></tr>
+                        <tr><th>Cache Storage</th><td><code>${esc((fullData.storage_files || {})[appKey] || 'ui_roadmap/')}</code></td></tr>
                     </table>
                 </div>
 
                 <div class="article-header">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;">
                         <div>
-                            <h1 class="article-title">${appKey.charAt(0).toUpperCase() + appKey.slice(1)}</h1>
+                            <h1 class="article-title">${esc(appTitle)}</h1>
                             <div class="article-tagline">From DeskDriver Wiki, the free desktop automation encyclopedia</div>
                         </div>
                         <div style="display: flex; gap: 8px; margin-top: 6px;">
-                            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive('${appKey}')" title="Exhaustive deep dive: inspect process specs, menus, toolbars, buttons, inputs, and shortcuts">🔬 Deep Dive</button>
+                            <button id="btnDeepDive" class="btn-wiki btn-wiki-primary" onclick="triggerDeepDive(${jsArg(appKey)})" title="Exhaustive deep dive: inspect process specs, menus, toolbars, buttons, inputs, and shortcuts">🔬 Deep Dive</button>
                         </div>
                     </div>
                 </div>
 
                 ${proc.is_canvas_game ? `
                     <div class="hatnote" style="border-left: 4px solid #f2994a; background: #fffdf5; padding: 10px 14px; margin-bottom: 16px;">
-                        🎮 <strong>Hardware Canvas / Game Engine Detected (${proc.engine}):</strong><br>
+                        🎮 <strong>Hardware Canvas / Game Engine Detected (${esc(proc.engine)}):</strong><br>
                         This application renders directly to the GPU without native Windows UIA controls. DeskDriver automatically controls it using <strong>Zero-Latency Keyboard Accelerators</strong> and <strong>Responsive Spatial Grid Anchors</strong>.
                     </div>
                 ` : ''}
 
-                <div class="hatnote">
-                    "<em>${appKey} (software)</em>" redirects here. This article documents interactive controls, process specs, and keyboard accelerators indexed for <strong>${appKey}</strong>.
-                </div>
+                ${subWindowNote}
 
                 <div class="toc-box">
                     <div class="toc-title">Contents</div>
                     <ul class="toc-list">
-                        <li class="toc-item"><a class="toc-link" href="#sec-overview">1 Overview</a></li>
-                        <li class="toc-item"><a class="toc-link" href="#sec-shortcuts">2 Keyboard Accelerators (${hotkeyElements.length})</a></li>
-                        <li class="toc-item"><a class="toc-link" href="#sec-controls">3 Spatial UI Elements & Recipes (${elements.length})</a></li>
-                        <li class="toc-item"><a class="toc-link" href="#sec-tree">4 Dynamic Hierarchy Tree & Action Chains</a></li>
+                        <li class="toc-item"><a class="toc-link" href="#sec-shortcuts">1 Keyboard Accelerators (${hotkeyElements.length})</a></li>
+                        <li class="toc-item"><a class="toc-link" href="#sec-controls">2 UI Elements & Recipes (${ctrlElements.length})</a></li>
+                        <li class="toc-item"><a class="toc-link" href="#sec-tree">3 Hierarchy Tree & Action Chains</a></li>
                     </ul>
                 </div>
 
-                <h2 class="wiki-h2" id="sec-overview">1 Overview</h2>
-                <p>
-                    <strong>${appKey}</strong> has been deeply inspected and indexed into the DeskDriver roadmap cache. AI agents can resolve coordinates and execute zero-token action recipes in sub-millisecond O(1) time without performing continuous vision queries or screen captures.
-                </p>
-
-                <h2 class="wiki-h2" id="sec-shortcuts">2 Keyboard Accelerators</h2>
-                <p style="color: var(--text-muted); margin-bottom: 12px;">Mapped hotkeys allow instant 0.5 ms actions without cursor movement:</p>
-                <table class="wikitable">
+                <h2 class="wiki-h2" id="sec-shortcuts">1 Keyboard Accelerators</h2>
+                <table class="wikitable compact-table">
+                    <colgroup><col style="width:34%"><col style="width:16%"><col><col style="width:70px"></colgroup>
                     <thead>
-                        <tr><th>Action / Control</th><th>Accelerator Key</th><th>Action Recipe</th><th>Latency</th><th>Actions</th></tr>
+                        <tr><th>Action / Control</th><th>Key</th><th>Recipe (click to copy)</th><th></th></tr>
                     </thead>
                     <tbody>
-                        ${hkRows || '<tr><td colspan="5" style="color: var(--text-muted);">No specific hotkeys mapped yet.</td></tr>'}
+                        ${hkRows || '<tr><td colspan="4" style="color: var(--text-muted);">No specific hotkeys mapped yet.</td></tr>'}
                     </tbody>
                 </table>
 
-                <h2 class="wiki-h2" id="sec-controls">3 Spatial UI Elements & Recipes</h2>
-                <p style="color: var(--text-muted); margin-bottom: 12px;">Full list of interactive controls mapped for <strong>${appKey}</strong> with zero-token action recipes:</p>
+                <h2 class="wiki-h2" id="sec-controls">2 UI Elements & Recipes</h2>
 
                 <div class="wiki-filter-bar" style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;">
-                    <button class="btn-wiki btn-filter active" onclick="filterCtrlTable('all', this)">All (${elements.length})</button>
+                    <button class="btn-wiki btn-filter active" onclick="filterCtrlTable('all', this)">All (${ctrlElements.length})</button>
                     ${menuCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('menu', this)">📂 Menus (${menuCount})</button>` : ''}
                     ${btnCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('button', this)">🔘 Buttons (${btnCount})</button>` : ''}
                     ${inputCount ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('edit', this)">📝 Inputs (${inputCount})</button>` : ''}
@@ -1064,22 +1155,23 @@ HTML_CONTENT = """<!DOCTYPE html>
                     ${hotkeyElements.length ? `<button class="btn-wiki btn-filter" onclick="filterCtrlTable('shortcut', this)">⌨️ Shortcuts (${hotkeyElements.length})</button>` : ''}
                 </div>
 
-                <table class="wikitable" id="ctrlTable">
+                <table class="wikitable compact-table" id="ctrlTable">
+                    <colgroup><col style="width:36%"><col style="width:13%"><col><col style="width:90px"></colgroup>
                     <thead>
-                        <tr><th>Control Name & Breadcrumb</th><th>Type</th><th>Zero-Token AI Recipe</th><th>Coordinates & Anchor</th><th>Shortcut</th></tr>
+                        <tr><th>Control</th><th>Type</th><th>Recipe (click to copy)</th><th title="Window-relative position; arrows mark right/bottom anchoring">Position</th></tr>
                     </thead>
                     <tbody>
-                        ${elRows || '<tr><td colspan="5" style="color: var(--text-muted);">No controls indexed yet. Click 🔬 Deep Dive above.</td></tr>'}
+                        ${elRows || '<tr><td colspan="4" style="color: var(--text-muted);">No controls indexed yet. Click 🔬 Deep Dive above.</td></tr>'}
                     </tbody>
                 </table>
 
-                <h2 class="wiki-h2" id="sec-tree">4 Dynamic Hierarchy Tree & Action Chains</h2>
-                <p style="color: var(--text-muted); margin-bottom: 12px;">
-                    Expandable semantic tree showing what controls exist under each menu, toolbar, and container, with ready-to-run action chains:
-                </p>
-                <div id="appTreeContainer" style="margin-top: 12px;">
-                    <p style="color: var(--text-muted); font-size: 13px;">Loading hierarchy tree...</p>
-                </div>
+                <h2 class="wiki-h2" id="sec-tree">3 Hierarchy Tree & Action Chains</h2>
+                <details class="tree-section">
+                    <summary>Show controls grouped by menu, toolbar and container, with runnable action chains</summary>
+                    <div id="appTreeContainer">
+                        <p style="color: var(--text-muted); font-size: 13px;">Loading hierarchy tree...</p>
+                    </div>
+                </details>
             `;
 
             loadAppTree(appKey);
@@ -1106,10 +1198,10 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
                             <div style="background: #f8f9fa; border-bottom: 1px solid var(--border-light); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;">
                                 <div>
-                                    <strong style="font-size: 14px; font-family: var(--serif);">${branch.name}</strong>
-                                    <span style="font-size: 11.5px; color: var(--text-muted); margin-left: 8px;">(${branch.count || 0} controls)</span>
+                                    <strong style="font-size: 14px; font-family: var(--serif);">${esc(branch.name)}</strong>
+                                    <span style="font-size: 11.5px; color: var(--text-muted); margin-left: 8px;">(${esc(branch.count || 0)} controls)</span>
                                 </div>
-                                <span style="font-size: 11px; color: var(--text-muted);">${branch.description || ''}</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">${esc(branch.description || '')}</span>
                             </div>
                             <div style="padding: 12px 14px;">
                     `;
@@ -1117,25 +1209,24 @@ HTML_CONTENT = """<!DOCTYPE html>
                     if (branch.sub_branches && branch.sub_branches.length > 0) {
                         for (const sub of branch.sub_branches) {
                             html += `
-                                <details open style="margin-bottom: 10px; border: 1px solid #eaecf0; border-radius: 2px; padding: 6px 10px; background: #fafbfc;">
+                                <details style="margin-bottom: 6px; border: 1px solid #eaecf0; border-radius: 2px; padding: 6px 10px; background: #fafbfc;">
                                     <summary style="font-weight: bold; cursor: pointer; color: var(--primary); font-size: 13px; padding: 4px 0;">
-                                        📁 ${sub.name} <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(${sub.count || (sub.children || []).length} options)</span>
+                                        📁 ${esc(sub.name)} <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(${esc(sub.count || (sub.children || []).length)} options)</span>
                                     </summary>
                                     <div style="margin-top: 8px; padding-left: 14px; border-left: 2px solid #c8ccd1;">
                             `;
                             for (const item of (sub.children || [])) {
-                                const scBadge = item.shortcut ? `<kbd class="kbd-cap">${item.shortcut}</kbd>` : '';
+                                const scBadge = item.shortcut ? `<kbd class="kbd-cap">${esc(item.shortcut)}</kbd>` : '';
                                 html += `
                                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dotted #eaecf0; font-size: 12.5px;">
                                         <div style="display: flex; align-items: center; gap: 8px;">
                                             <span style="color: #54595d;">↳</span>
-                                            <strong>${item.name}</strong>
+                                            <strong>${esc(item.name)}</strong>
                                             ${scBadge}
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 6px;">
-                                            <code style="font-size: 11px; background: #f0f2f5; padding: 2px 6px;">${item.action_chain || ''}</code>
-                                            <button class="btn-wiki btn-wiki-primary" style="font-size: 11px; padding: 2px 8px;" onclick="runCustomActionString('${item.action_chain || ''}')">▶ Run</button>
-                                            <button class="btn-wiki" style="font-size: 11px; padding: 2px 6px;" onclick="copyToClipboard('${item.action_chain || ''}')" title="Copy action string">📋</button>
+                                            <code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(item.action_chain || '')})">${esc(item.action_chain || '')}</code>
+                                            <button class="btn-wiki btn-wiki-primary btn-sm" onclick="runCustomActionString(${jsArg(item.action_chain || '')})">▶ Run</button>
                                         </div>
                                     </div>
                                 `;
@@ -1144,19 +1235,18 @@ HTML_CONTENT = """<!DOCTYPE html>
                         }
                     } else if (branch.children && branch.children.length > 0) {
                         for (const item of branch.children) {
-                            const scBadge = item.shortcut ? `<kbd class="kbd-cap">${item.shortcut}</kbd>` : '';
+                            const scBadge = item.shortcut ? `<kbd class="kbd-cap">${esc(item.shortcut)}</kbd>` : '';
                             html += `
                                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dotted #eaecf0; font-size: 12.5px;">
                                     <div style="display: flex; align-items: center; gap: 8px;">
                                         <span style="color: #54595d;">•</span>
-                                        <strong>${item.name}</strong>
-                                        <span style="font-size: 11px; color: var(--text-muted);">(${item.control_type || ''})</span>
+                                        <strong>${esc(item.name)}</strong>
+                                        <span style="font-size: 11px; color: var(--text-muted);">(${esc(item.control_type || '')})</span>
                                         ${scBadge}
                                     </div>
                                     <div style="display: flex; align-items: center; gap: 6px;">
-                                        <code style="font-size: 11px; background: #f0f2f5; padding: 2px 6px;">${item.action_chain || ''}</code>
-                                        <button class="btn-wiki btn-wiki-primary" style="font-size: 11px; padding: 2px 8px;" onclick="runCustomActionString('${item.action_chain || ''}')">▶ Run</button>
-                                        <button class="btn-wiki" style="font-size: 11px; padding: 2px 6px;" onclick="copyToClipboard('${item.action_chain || ''}')" title="Copy action string">📋</button>
+                                        <code class="recipe" title="Click to copy" onclick="copyAndToast(${jsArg(item.action_chain || '')})">${esc(item.action_chain || '')}</code>
+                                        <button class="btn-wiki btn-wiki-primary btn-sm" onclick="runCustomActionString(${jsArg(item.action_chain || '')})">▶ Run</button>
                                     </div>
                                 </div>
                             `;
@@ -1169,7 +1259,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 html += '</div>';
                 container.innerHTML = html;
             } catch (e) {
-                container.innerHTML = `<p style="color: #d33;">Error loading tree: ${e}</p>`;
+                container.innerHTML = `<p style="color: #d33;">Error loading tree: ${esc(e)}</p>`;
             }
         }
 
@@ -1251,8 +1341,11 @@ HTML_CONTENT = """<!DOCTYPE html>
                 let rows = '';
                 for (const log of logs) {
                     const badgeClass = 'scan-badge-' + (log.action || '').toLowerCase().replace(/[^a-z]/g, '');
-                    const appKey = (log.app || '').toLowerCase();
-                    const appLink = log.app ? `<a onclick="navigateTo('app', '${appKey}')" style="color: var(--primary); font-weight: bold; cursor: pointer;">${log.app}</a>` : '<span style="color: var(--text-muted);">(System)</span>';
+                    // Only link apps that have an article; "3 Apps", "Action Pipeline" etc. do not.
+                    const appKey = findAppKey(log.app);
+                    const appLink = appKey
+                        ? `<a onclick="navigateTo('app', ${jsArg(appKey)})" style="color: var(--primary); font-weight: bold; cursor: pointer;">${esc(appLabel(appKey))}</a>`
+                        : (log.app ? `<span style="font-weight: bold;">${esc(log.app)}</span>` : '<span style="color: var(--text-muted);">(System)</span>');
                     let newSection = '';
                     if (log.new_items && log.new_items.length > 0) {
                         newSection = `
@@ -1263,7 +1356,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                                 <div style="margin-top: 4px;">
                                     ${log.new_items.slice(0, 15).map(i => {
                                         const label = (typeof i === 'object' && i !== null) ? (i.name || i.window_title || i.app || JSON.stringify(i)) : i;
-                                        return `<span class="item-chip" style="background: #e6f9f0; border-color: #8be0bf; color: #14866d; font-weight: 600;">+ ${label}</span>`;
+                                        return `<span class="item-chip" style="background: #e6f9f0; border-color: #8be0bf; color: #14866d; font-weight: 600;">+ ${esc(label)}</span>`;
                                     }).join('')}
                                     ${log.new_items.length > 15 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.new_items.length - 15} more</span>` : ''}
                                 </div>
@@ -1272,7 +1365,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     } else if (log.new_count === 0 && log.count > 0) {
                         newSection = `
                             <div style="margin-top: 4px; font-size: 11.5px; color: var(--text-muted); font-style: italic;">
-                                (0 new &mdash; all ${log.count} controls were already indexed in roadmap)
+                                (0 new &mdash; all ${esc(log.count)} controls were already indexed in roadmap)
                             </div>
                         `;
                     }
@@ -1280,25 +1373,25 @@ HTML_CONTENT = """<!DOCTYPE html>
                     const itemsList = (log.items && log.items.length > 0)
                         ? `<div style="margin-top: 6px; font-size: 11.5px; color: var(--text-muted);"><span style="font-weight: 600;">All scanned:</span> ${log.items.slice(0, 10).map(i => {
                             const label = (typeof i === 'object' && i !== null) ? (i.window_title ? `${i.window_title} (${i.elements_count || 0})` : (i.app || i.name || JSON.stringify(i))) : i;
-                            return `<span class="item-chip">${label}</span>`;
+                            return `<span class="item-chip">${esc(label)}</span>`;
                         }).join('')}${log.items.length > 10 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">+${log.items.length - 10} more</span>` : ''}</div>`
                         : '';
 
                     rows += `
                         <tr>
                             <td style="white-space: nowrap; font-size: 12px; color: var(--text-muted); vertical-align: top;">
-                                <strong>${log.time_str || ''}</strong><br>
-                                <span style="font-size: 11px;">${log.timestamp?.split(' ')[0] || ''}</span>
+                                <strong>${esc(log.time_str || '')}</strong><br>
+                                <span style="font-size: 11px;">${esc(log.timestamp?.split(' ')[0] || '')}</span>
                             </td>
-                            <td style="vertical-align: top;"><span class="scan-badge ${badgeClass}">${log.action}</span></td>
+                            <td style="vertical-align: top;"><span class="scan-badge ${badgeClass}">${esc(log.action)}</span></td>
                             <td style="vertical-align: top;">${appLink}</td>
                             <td style="vertical-align: top;">
-                                <div><strong>${log.summary}</strong> ${log.duration ? `<small style="color: var(--text-muted);">(${log.duration})</small>` : ''}</div>
+                                <div><strong>${esc(log.summary)}</strong> ${log.duration ? `<small style="color: var(--text-muted);">(${esc(log.duration)})</small>` : ''}</div>
                                 ${newSection}
                                 ${itemsList}
                             </td>
                             <td style="text-align: right; white-space: nowrap; vertical-align: top;">
-                                <button class="btn-wiki" style="font-size: 11.5px; padding: 3px 8px;" onclick="navigateTo('app', '${appKey}')">Open Article &rarr;</button>
+                                ${appKey ? `<button class="btn-wiki" style="font-size: 11.5px; padding: 3px 8px;" onclick="navigateTo('app', ${jsArg(appKey)})">Open Article &rarr;</button>` : ''}
                             </td>
                         </tr>
                     `;
@@ -1328,6 +1421,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 `;
             } catch (e) {
                 console.error("Error loading logs:", e);
+                const tc = document.getElementById('historyTableContainer');
+                if (tc) tc.innerHTML = `<p style="color: #d33;">Error loading activity log: ${esc(e)}</p>`;
             }
         }
 
@@ -1338,10 +1433,10 @@ HTML_CONTENT = """<!DOCTYPE html>
             for (const [action, key] of Object.entries(hotkeys)) {
                 rows += `
                     <tr>
-                        <td><strong>${action}</strong></td>
-                        <td><kbd class="kbd-cap">${key.toUpperCase()}</kbd></td>
+                        <td><strong>${esc(action)}</strong></td>
+                        <td><kbd class="kbd-cap">${esc(key.toUpperCase())}</kbd></td>
                         <td><span style="color: var(--success); font-weight: 600;">0.5 ms</span></td>
-                        <td><button class="btn-wiki" onclick="triggerHotkey('${key}')">Test / Trigger</button></td>
+                        <td><button class="btn-wiki btn-sm" onclick="triggerHotkey(${jsArg(key)})">Press</button></td>
                     </tr>
                 `;
             }
@@ -1375,10 +1470,10 @@ HTML_CONTENT = """<!DOCTYPE html>
             for (const [key, uri] of Object.entries(fastpaths)) {
                 rows += `
                     <tr>
-                        <td><strong>${key}</strong></td>
-                        <td><code style="color: var(--primary);">${uri}</code></td>
-                        <td style="color: var(--text-muted);">Directly opens ${key} settings or native tool</td>
-                        <td><button class="btn-wiki" onclick="launchFastpath('${key}')">Test / Launch</button></td>
+                        <td><strong>${esc(key)}</strong></td>
+                        <td><code style="color: var(--primary);">${esc(uri)}</code></td>
+                        <td style="color: var(--text-muted);">Directly opens ${esc(key)} settings or native tool</td>
+                        <td><button class="btn-wiki btn-sm" onclick="launchFastpath(${jsArg(key)})">Launch</button></td>
                     </tr>
                 `;
             }
@@ -1414,7 +1509,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 </div>
 
                 <div class="hatnote">
-                    <strong>Action String Syntax:</strong> Chain multiple actions using <code>|</code> or <code>-&gt;</code>.<br>
+                    <strong>Action String Syntax:</strong> Chain multiple actions using <code>|</code> or <code>&nbsp;-&gt;&nbsp;</code> (with spaces).<br>
                     Commands supported: <code>open:&lt;app&gt;</code>, <code>focus:&lt;win&gt;</code>, <code>click:&lt;element or x,y&gt;</code>, <code>type:&lt;text&gt;</code>, <code>fill:&lt;field&gt;, &lt;text&gt;</code>, <code>key:&lt;hotkey&gt;</code>, <code>wait:&lt;seconds&gt;</code>, <code>snap:&lt;left|right&gt;</code>.
                 </div>
 
@@ -1459,19 +1554,20 @@ HTML_CONTENT = """<!DOCTYPE html>
                 let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
                 for (const name of keys) {
                     const actStr = actions[name];
-                    const steps = actStr.split(/\\s*(?:\\||->|;)\\s*/).filter(Boolean);
-                    const stepsChips = steps.map(s => `<span class="item-chip" style="background:#f0f2f5; font-family:monospace;">${s}</span>`).join(' <span style="color:#a2a9b1;">&rarr;</span> ');
+                    // Same delimiters as parse_action_string (a bare "->" belongs to drag coordinates)
+                    const steps = actStr.split(/\\s*(?:\\||\\s->\\s|;|\\n)\\s*/).filter(Boolean);
+                    const stepsChips = steps.map(s => `<span class="item-chip" style="background:#f0f2f5; font-family:monospace;">${esc(s)}</span>`).join(' <span style="color:#a2a9b1;">&rarr;</span> ');
                     html += `
                         <div style="background: #ffffff; border: 1px solid var(--border); padding: 14px 16px; border-radius: 2px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span style="font-size: 15px;">⚡</span>
-                                    <strong style="font-size: 14px; font-family: var(--serif);">${name}</strong>
+                                    <strong style="font-size: 14px; font-family: var(--serif);">${esc(name)}</strong>
                                     <span style="font-size: 11px; color: var(--text-muted);">(${steps.length} steps)</span>
                                 </div>
                                 <div style="display: flex; gap: 6px;">
-                                    <button class="btn-wiki btn-wiki-primary" style="font-size: 12px; padding: 4px 10px;" onclick="runSavedAction('${name}')">▶ Run</button>
-                                    <button class="btn-wiki" style="font-size: 12px; padding: 4px 8px; color: #d33;" onclick="deleteSavedAction('${name}')">🗑️</button>
+                                    <button class="btn-wiki btn-wiki-primary" style="font-size: 12px; padding: 4px 10px;" onclick="runSavedAction(${jsArg(name)})">▶ Run</button>
+                                    <button class="btn-wiki" style="font-size: 12px; padding: 4px 8px; color: #d33;" onclick="deleteSavedAction(${jsArg(name)})">🗑️</button>
                                 </div>
                             </div>
                             <div style="margin-top: 6px; font-size: 12px;">${stepsChips}</div>
@@ -1481,7 +1577,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 html += '</div>';
                 container.innerHTML = html;
             } catch (e) {
-                container.innerHTML = `<p style="color: #d33;">Error loading actions: ${e}</p>`;
+                container.innerHTML = `<p style="color: #d33;">Error loading actions: ${esc(e)}</p>`;
             }
         }
 
@@ -1627,7 +1723,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         function copyAndToast(text) {
             try {
                 navigator.clipboard.writeText(text);
-                showToast(`📋 Copied action recipe: <code>${text}</code>`, 3000);
+                showToast(`📋 Copied action recipe: ${text}`, 3000);
             } catch (e) {
                 prompt('Copy action recipe:', text);
             }
@@ -1638,14 +1734,13 @@ HTML_CONTENT = """<!DOCTYPE html>
             if (btnElement) btnElement.classList.add('active');
             document.querySelectorAll('.ctrl-row').forEach(row => {
                 const type = (row.dataset.type || '').toLowerCase();
-                const hasSc = row.dataset.shortcut === '1';
                 let match = true;
                 if (category === 'button') match = /button|toolbar/.test(type);
                 else if (category === 'menu') match = /menu/.test(type);
                 else if (category === 'edit') match = /edit|combobox|spinner|document/.test(type);
                 else if (category === 'tab') match = /tab|list|tree|item/.test(type);
                 else if (category === 'toggle') match = /check|radio|toggle/.test(type);
-                else if (category === 'shortcut') match = hasSc;
+                else if (category === 'shortcut') match = row.dataset.shortcut === '1';
                 row.style.display = match ? '' : 'none';
             });
         }
@@ -1673,7 +1768,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 const data = await res.json();
                 if (data.status === 'deep_dive_complete') {
                     const newTxt = (data.new_count > 0) ? ` (✨ ${data.new_count} newly discovered!)` : ' (all already in roadmap)';
-                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts${newTxt} for ${data.app}!`, 8000);
+                    showToast(`✅ Deep Dive Complete! Indexed ${data.total_elements} controls & ${data.total_shortcuts} shortcuts${newTxt} for ${appLabel(data.app)}!`, 8000);
                     await fetchStats();
                     if (data.app) navigateTo('app', data.app);
                 } else {
@@ -1728,8 +1823,8 @@ HTML_CONTENT = """<!DOCTYPE html>
             const q = document.getElementById('wikiGlobalSearch').value.toLowerCase().trim();
             if (!q || !fullData) return;
             const roadmap = fullData.roadmap || {};
-            for (const key of Object.keys(roadmap)) {
-                if (key.includes(q)) {
+            for (const key of sortedAppKeys(roadmap)) {
+                if (key.toLowerCase().includes(q) || appLabel(key).toLowerCase().includes(q)) {
                     navigateTo('app', key);
                     return;
                 }
@@ -1882,12 +1977,12 @@ HTML_CONTENT = """<!DOCTYPE html>
             const appsList = (data.apps_visited || []).join(', ') || 'Desktop';
             stats.innerHTML = `
                 <div style="background:#f8f9fa; border:1px solid #c8ccd1; padding:12px 16px; margin-bottom:12px; display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px;">
-                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Duration</span><div style="font-size:17px; font-weight:bold; color:#3366cc;">${data.duration_seconds}s</div></div>
-                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Actions Captured</span><div style="font-size:17px; font-weight:bold; color:#14866d;">${data.actions_count} steps</div></div>
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Duration</span><div style="font-size:17px; font-weight:bold; color:#3366cc;">${esc(data.duration_seconds)}s</div></div>
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Actions Captured</span><div style="font-size:17px; font-weight:bold; color:#14866d;">${esc(data.actions_count)} steps</div></div>
                     <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">Apps Visited</span><div style="font-size:17px; font-weight:bold; color:#202122;">${(data.apps_visited || []).length} apps</div></div>
-                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">New Controls</span><div style="font-size:17px; font-weight:bold; color:#d33;">✨ ${data.new_controls_count || 0}</div></div>
+                    <div><span style="color:#54595d; font-size:11.5px; text-transform:uppercase;">New Controls</span><div style="font-size:17px; font-weight:bold; color:#d33;">✨ ${esc(data.new_controls_count || 0)}</div></div>
                 </div>
-                <p style="margin-bottom:6px;"><strong>Apps Traverse Path:</strong> <code>${appsList}</code></p>
+                <p style="margin-bottom:6px;"><strong>Apps Traverse Path:</strong> <code>${esc(appsList)}</code></p>
                 <p style="color:var(--text-muted); font-size:12.5px;">All newly discovered controls from this session have been automatically indexed into <code>ui_roadmap/</code> and logged into <strong>📜 Scan History</strong>.</p>
             `;
 
@@ -1908,7 +2003,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             const val = document.getElementById('recModalPipeline')?.value || '';
             if (!val) return;
             closeRecModal();
-            showToast(`⚡ Executing recorded pipeline: <code>${val}</code>`, 6000);
+            showToast(`⚡ Executing recorded pipeline: ${val}`, 6000);
             try {
                 const res = await fetch('/api/run_action', {
                     method: 'POST',
@@ -1916,7 +2011,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                     body: JSON.stringify({ action: val })
                 });
                 const d = await res.json();
-                showToast(`✅ Executed recorded pipeline (${d.steps_executed} steps)!`, 6000);
+                if (d.error) showToast(`Pipeline error: ${d.error}`, 6000);
+                else showToast(`✅ Executed recorded pipeline (${d.steps_executed} steps)!`, 6000);
             } catch (e) {
                 showToast('Execution error: ' + e);
             }
@@ -1928,12 +2024,14 @@ HTML_CONTENT = """<!DOCTYPE html>
             const name = prompt('Enter a name for this recorded action pipeline:', 'My Recorded Workflow');
             if (!name) return;
             try {
-                await fetch('/api/save_action', {
+                const res = await fetch('/api/save_action', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: name, action: val })
                 });
-                showToast(`💾 Saved recorded pipeline as '<strong>${name}</strong>'!`);
+                const d = await res.json();
+                if (d.error) return showToast(`Save error: ${d.error}`);
+                showToast(`💾 Saved recorded pipeline as '${name}'!`);
                 await fetchStats();
                 navigateTo('actions');
             } catch (e) {
@@ -1951,33 +2049,16 @@ HTML_CONTENT = """<!DOCTYPE html>
 from deskdriver.navigation.history import load_scan_logs, record_scan_log
 
 
-def add_scan_log(
-    action: str,
-    app: str,
-    summary: str,
-    count: int = 0,
-    new_count: int = 0,
-    new_items: list | None = None,
-    shortcuts_count: int = 0,
-    items: list | None = None,
-    duration: float = 0.0,
-    status: str = "success",
-):
-    return record_scan_log(
-        action=action,
-        app=app,
-        summary=summary,
-        count=count,
-        new_count=new_count,
-        new_items=new_items,
-        shortcuts_count=shortcuts_count,
-        items=items,
-        duration=duration,
-        status=status,
-    )
-
-
 class DashboardHandler(BaseHTTPRequestHandler):
+    """
+    Local JSON API behind the dashboard page. Each route returns a JSON-serializable
+    object; errors become JSON {"error": ...} responses instead of dropped connections.
+    """
+
+    MAX_BODY_BYTES = 1_000_000
+
+    # ------------------------------------------------------------------ plumbing
+
     def _is_trusted_request(self) -> bool:
         """
         Only serve the dashboard's own page. The API types text, launches programs and runs
@@ -1992,267 +2073,236 @@ class DashboardHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return origin is None or origin in {f"http://{h}" for h in allowed_hosts}
 
-    def _reject(self):
-        self.send_response(403)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+    def _send(self, status: int, body: bytes, content_type: str):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(b"Forbidden: cross-origin requests are not allowed")
+        self.wfile.write(body)
+
+    def _send_json(self, obj, status: int = 200):
+        self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+
+    def _read_json_body(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return {}
+        if length > self.MAX_BODY_BYTES:
+            raise ValueError("request body too large")
+        try:
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ValueError("request body is not valid JSON")
+        if not isinstance(data, dict):
+            raise ValueError("request body must be a JSON object")
+        return data
+
+    def _dispatch(self, routes: dict, get_arg):
+        """Run the route for this path. get_arg supplies its argument (parsed URL or JSON body)."""
+        if not self._is_trusted_request():
+            return self._send(403, b"Forbidden: cross-origin requests are not allowed", "text/plain; charset=utf-8")
+        path = urlparse(self.path).path.rstrip("/")
+        handler = routes.get(path)
+        if handler is None:
+            return self._send_json({"error": f"unknown endpoint {path or '/'}"}, 404)
+        try:
+            result = handler(self, get_arg())
+        except ValueError as e:
+            return self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            return self._send_json({"error": f"{type(e).__name__}: {e}"}, 500)
+        if result is not None:
+            self._send_json(result, 400 if isinstance(result, dict) and "error" in result else 200)
 
     def do_GET(self):
-        if not self._is_trusted_request():
-            return self._reject()
-        clean_path = self.path.split("?")[0].rstrip("/")
-        if clean_path in ("", "/index.html"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(HTML_CONTENT.encode("utf-8"))
-        elif clean_path == "/api/stats":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-
-            roadmap_data = am.roadmap.reload()
-            total_elements = sum(len(app.get("elements", {})) for app in roadmap_data.values())
-            current_logs = load_scan_logs()
-
-            data = {
-                "version": getattr(am, "__version__", "0.2.0"),
-                "total_apps": len(roadmap_data),
-                "total_elements": total_elements,
-                "total_actions": len(am.load_saved_actions()),
-                "common_hotkeys": COMMON_HOTKEYS,
-                "fastpaths": FASTPATHS,
-                "roadmap": roadmap_data,
-                "storage_files": {k: f"ui_roadmap/{am.roadmap.app_file(k).name}" for k in roadmap_data},
-                "timestamp": datetime.now().isoformat(),
-                "last_scan": current_logs[0] if current_logs else None,
-                "total_scans": len(current_logs),
-            }
-            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
-        elif clean_path == "/api/actions":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(json.dumps({"actions": am.load_saved_actions()}, ensure_ascii=False).encode("utf-8"))
-        elif clean_path == "/api/app_tree":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-
-            query = ""
-            if "?" in self.path:
-                from urllib.parse import parse_qs, urlparse
-                qs = parse_qs(urlparse(self.path).query)
-                query = qs.get("app", [""])[0]
-
-            tree_data = am.build_application_tree(query)
-            self.wfile.write(json.dumps(tree_data, ensure_ascii=False).encode("utf-8"))
-        elif clean_path == "/api/logs":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-
-            current_logs = load_scan_logs()
-            self.wfile.write(
-                json.dumps(
-                    {
-                        "logs": current_logs,
-                        "last_scan": current_logs[0] if current_logs else None,
-                        "total_scans": len(current_logs),
-                    },
-                    ensure_ascii=False,
-                ).encode("utf-8")
-            )
-        elif clean_path == "/api/record/status":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(
-                json.dumps(am.get_recording_status(), ensure_ascii=False).encode("utf-8")
-            )
-        else:
-            self.send_response(404)
-            self.end_headers()
+        self._dispatch(GET_ROUTES, lambda: urlparse(self.path))
 
     def do_POST(self):
-        if not self._is_trusted_request():
-            return self._reject()
-        clean_path = self.path.split("?")[0].rstrip("/")
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-        try:
-            req_data = json.loads(body)
-        except Exception:
-            req_data = {}
+        self._dispatch(POST_ROUTES, self._read_json_body)
 
-        if clean_path == "/api/prelearn":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def log_message(self, format, *args):
+        pass
 
-            res = am.run_system_prelearn()
-            if isinstance(res, dict):
-                apps = res.get("scanned_apps", [])
-                total_cnt = res.get("total_elements", res.get("total_new_elements", 0))
-                new_items = res.get("new_elements", [])
-                new_cnt = res.get("total_new_elements", len(new_items))
-                app_items = [
-                    f"{a.get('window_title') or a.get('app', 'app')} ({a.get('elements_count', 0)})"
-                    for a in apps
-                    if "elements_count" in a
-                ]
+    # ------------------------------------------------------------------ GET routes
 
-                if new_cnt > 0:
-                    summary = f"Full scan indexed {total_cnt} controls across {len(apps)} applications (✨ {new_cnt} newly discovered)"
-                else:
-                    summary = f"Full scan checked {total_cnt} controls across {len(apps)} applications (0 new — all already indexed)"
+    def get_index(self, parsed):
+        self._send(200, HTML_CONTENT.encode("utf-8"), "text/html; charset=utf-8")
 
-                add_scan_log(
-                    action="System Pre-Learn",
-                    app=f"{len(apps)} Apps",
-                    summary=summary,
-                    count=total_cnt,
-                    new_count=new_cnt,
-                    new_items=new_items,
-                    items=app_items,
-                    duration=res.get("duration_seconds", 0.0),
-                )
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+    def get_stats(self, parsed):
+        roadmap_data = am.roadmap.reload()
+        current_logs = load_scan_logs()
+        return {
+            "version": getattr(am, "__version__", "0.2.0"),
+            "total_apps": len(roadmap_data),
+            "total_elements": sum(len(app.get("elements", {})) for app in roadmap_data.values()),
+            "total_actions": len(am.load_saved_actions()),
+            "common_hotkeys": COMMON_HOTKEYS,
+            "fastpaths": FASTPATHS,
+            "roadmap": roadmap_data,
+            "storage_files": {k: f"ui_roadmap/{am.roadmap.app_file(k).name}" for k in roadmap_data},
+            "timestamp": datetime.now().isoformat(),
+            "last_scan": current_logs[0] if current_logs else None,
+            "total_scans": len(current_logs),
+        }
 
-        elif clean_path == "/api/hotkey":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def get_actions(self, parsed):
+        return {"actions": am.load_saved_actions()}
 
-            hk = req_data.get("hotkey", "")
-            if hk:
-                am.press_hotkey(hk)
-            self.wfile.write(json.dumps({"success": True, "hotkey": hk}).encode("utf-8"))
+    def get_app_tree(self, parsed):
+        query = parse_qs(parsed.query).get("app", [""])[0]
+        return am.build_application_tree(query)
 
-        elif clean_path == "/api/type":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def get_logs(self, parsed):
+        current_logs = load_scan_logs()
+        return {
+            "logs": current_logs,
+            "last_scan": current_logs[0] if current_logs else None,
+            "total_scans": len(current_logs),
+        }
 
-            text = req_data.get("text", "")
-            enter = req_data.get("enter", False)
-            if text:
-                am.type_text(text, enter=enter)
-            self.wfile.write(json.dumps({"success": True, "typed": text}).encode("utf-8"))
+    def get_record_status(self, parsed):
+        return am.get_recording_status()
 
-        elif clean_path == "/api/fastpath":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    # ------------------------------------------------------------------ POST routes
 
-            target = req_data.get("target", "")
-            success = am.execute_fastpath(target)
-            self.wfile.write(json.dumps({"success": success, "target": target}).encode("utf-8"))
+    def post_prelearn(self, req):
+        res = am.run_system_prelearn()
+        apps = res.get("scanned_apps", [])
+        total_cnt = res.get("total_elements", 0)
+        new_items = res.get("new_elements", [])
+        new_cnt = res.get("total_new_elements", len(new_items))
+        app_items = [
+            f"{a.get('window_title') or a.get('app', 'app')} ({a.get('elements_count', 0)})"
+            for a in apps
+            if "elements_count" in a
+        ]
+        if new_cnt > 0:
+            summary = f"Full scan indexed {total_cnt} controls across {len(apps)} applications (✨ {new_cnt} newly discovered)"
+        else:
+            summary = f"Full scan checked {total_cnt} controls across {len(apps)} applications (0 new — all already indexed)"
+        record_scan_log(
+            action="System Pre-Learn",
+            app=f"{len(apps)} Apps",
+            summary=summary,
+            count=total_cnt,
+            new_count=new_cnt,
+            new_items=new_items,
+            items=app_items,
+            duration=res.get("duration_seconds", 0.0),
+        )
+        return res
 
-        elif clean_path == "/api/record_cursor":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def post_hotkey(self, req):
+        hk = str(req.get("hotkey", "")).strip()
+        if not hk:
+            return {"error": "hotkey is required"}
+        am.press_hotkey(hk)
+        return {"success": True, "hotkey": hk}
 
-            res = am.record_element_at_cursor(custom_name=req_data.get("name", ""))
-            if isinstance(res, dict) and res.get("status") == "element_recorded":
-                add_scan_log(
-                    action="Hover Record",
-                    app=res.get("app") or "Application",
-                    summary=f"Captured '{res.get('element')}' ({res.get('control_type')})",
-                    count=1,
-                    items=[res.get("element")],
-                )
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+    def post_type(self, req):
+        text = str(req.get("text", ""))
+        if not text:
+            return {"error": "text is required"}
+        am.type_text(text, enter=bool(req.get("enter", False)))
+        return {"success": True, "typed": text}
 
-        elif clean_path in ("/api/auto_record", "/api/deepdive"):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def post_fastpath(self, req):
+        target = str(req.get("target", ""))
+        return {"success": am.execute_fastpath(target), "target": target}
 
-            win = req_data.get("window", "")
-            res = am.deep_dive_app(window_search=win)
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+    def post_record_cursor(self, req):
+        res = am.record_element_at_cursor(custom_name=str(req.get("name", "")))
+        if res.get("status") == "element_recorded":
+            record_scan_log(
+                action="Hover Record",
+                app=res.get("app") or "Application",
+                summary=f"Captured '{res.get('element')}' ({res.get('control_type')})",
+                count=1,
+                items=[res.get("element")],
+            )
+        return res
 
-        elif clean_path == "/api/snap_window":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def post_deepdive(self, req):
+        return am.deep_dive_app(window_search=str(req.get("window", "")))
 
-            win = req_data.get("window", "")
-            side = req_data.get("side", "left")
-            ok = am.snap_window(win, side=side)
-            self.wfile.write(json.dumps({"success": ok, "window": win, "side": side}).encode("utf-8"))
+    def post_snap_window(self, req):
+        win = str(req.get("window", ""))
+        side = str(req.get("side", "left"))
+        return {"success": am.snap_window(win, side=side), "window": win, "side": side}
 
-        elif clean_path == "/api/paste":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def post_paste(self, req):
+        text = str(req.get("text", ""))
+        if not text:
+            return {"error": "text is required"}
+        return {"success": am.clipboard_paste(text), "length": len(text)}
 
-            text = req_data.get("text", "")
-            ok = am.clipboard_paste(text) if text else False
-            self.wfile.write(json.dumps({"success": ok, "length": len(text)}).encode("utf-8"))
+    def post_run_action(self, req):
+        act_name = str(req.get("name", ""))
+        act_str = str(req.get("action", ""))
+        if not act_str and act_name:
+            act_str = am.load_saved_actions().get(act_name, "")
+            if not act_str:
+                return {"error": f"no saved action named {act_name!r}"}
+        if not act_str.strip():
+            return {"error": "action string is empty"}
 
-        elif clean_path == "/api/run_action":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-
-            act_str = req_data.get("action", "")
-            act_name = req_data.get("name", "")
-            if not act_str and act_name:
-                actions = am.load_saved_actions()
-                act_str = actions.get(act_name, "")
-
-            res = am.execute_action(act_str)
-            steps_list = [s.get("action") for s in res.get("steps", []) if s.get("action")]
-            add_scan_log(
+        res = am.execute_action(act_str)
+        if "error" not in res:
+            record_scan_log(
                 action="Pipeline",
                 app=act_name or "Action Pipeline",
                 summary=f"Executed {res.get('steps_executed', 0)} steps: {act_str[:60]}",
                 count=res.get("steps_executed", 0),
-                items=steps_list,
+                items=[s.get("action") for s in res.get("steps", []) if s.get("action")],
                 duration=res.get("duration_seconds", 0.0),
+                status="success" if all(s.get("status") != "error" for s in res.get("steps", [])) else "error",
             )
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+        return res
 
-        elif clean_path == "/api/save_action":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def post_save_action(self, req):
+        return am.save_action(str(req.get("name", "")), str(req.get("action", "")))
 
-            name = req_data.get("name", "")
-            action_code = req_data.get("action", "")
-            res = am.save_action(name, action_code)
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+    def post_delete_action(self, req):
+        name = str(req.get("name", ""))
+        return {"success": am.delete_action(name), "name": name}
 
-        elif clean_path == "/api/delete_action":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
+    def post_record_start(self, req):
+        return am.start_recording()
 
-            name = req_data.get("name", "")
-            ok = am.delete_action(name)
-        elif clean_path == "/api/record/start":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            res = am.start_recording()
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+    def post_record_stop(self, req):
+        return am.stop_recording()
 
-        elif clean_path == "/api/record/stop":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            res = am.stop_recording()
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
 
-    def log_message(self, format, *args):
-        pass
+GET_ROUTES = {
+    "": DashboardHandler.get_index,
+    "/index.html": DashboardHandler.get_index,
+    "/api/stats": DashboardHandler.get_stats,
+    "/api/actions": DashboardHandler.get_actions,
+    "/api/app_tree": DashboardHandler.get_app_tree,
+    "/api/logs": DashboardHandler.get_logs,
+    "/api/record/status": DashboardHandler.get_record_status,
+}
+
+POST_ROUTES = {
+    "/api/prelearn": DashboardHandler.post_prelearn,
+    "/api/hotkey": DashboardHandler.post_hotkey,
+    "/api/type": DashboardHandler.post_type,
+    "/api/fastpath": DashboardHandler.post_fastpath,
+    "/api/record_cursor": DashboardHandler.post_record_cursor,
+    "/api/auto_record": DashboardHandler.post_deepdive,
+    "/api/deepdive": DashboardHandler.post_deepdive,
+    "/api/snap_window": DashboardHandler.post_snap_window,
+    "/api/paste": DashboardHandler.post_paste,
+    "/api/run_action": DashboardHandler.post_run_action,
+    "/api/save_action": DashboardHandler.post_save_action,
+    "/api/delete_action": DashboardHandler.post_delete_action,
+    "/api/record/start": DashboardHandler.post_record_start,
+    "/api/record/stop": DashboardHandler.post_record_stop,
+}
 
 
 def find_available_port(preferred_port: int = PORT) -> int:

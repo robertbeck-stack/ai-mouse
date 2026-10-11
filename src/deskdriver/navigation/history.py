@@ -9,6 +9,7 @@ import os
 import threading
 from datetime import datetime
 
+from deskdriver.navigation.element_filter import redact_secrets
 from deskdriver.paths import SCAN_HISTORY_FILE as LOG_FILE
 MAX_LOGS = 200
 
@@ -76,9 +77,10 @@ def _make_entry(entry_id, action, app, summary, count, new_count, new_items,
         "summary": summary,
         "count": count,
         "new_count": new_count,
-        "new_items": new_items or [],
+        # Item lists hold element names, which can include document titles
+        "new_items": [redact_secrets(i) if isinstance(i, str) else i for i in new_items or []],
         "shortcuts_count": shortcuts_count,
-        "items": items or [],
+        "items": [redact_secrets(i) if isinstance(i, str) else i for i in items or []],
         "duration": f"{duration:.2f}s" if duration else "",
         "status": status,
     }
